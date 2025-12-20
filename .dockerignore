@@ -1,0 +1,34 @@
+# Виртуальное окружение
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# Файлы разработки
+develop/
+*.md
+README.md
+
+# База данных (будет монтироваться как volume)
+bot/users.db
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# Docker файлы
+Dockerfile
+docker-compose.yml
+.dockerignore
+

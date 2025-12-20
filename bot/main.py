@@ -23,7 +23,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, BufferedInputFile, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 from opinion_clob_sdk import Client
@@ -607,17 +607,24 @@ async def cmd_start(message: Message, state: FSMContext):
     
     if user:
         await message.answer(
-            "✅ Вы уже зарегистрированы!\n\n"
-            "Используйте команду /make_market для размещения ордера."
+            """✅ You are already registered!
+
+Use the /make_market command to place an order."""
         )
         return
     
-    await message.answer(
-        "🔐 <b>Регистрация в боте</b>\n\n"
-        "⚠️ <b>Внимание:</b> Все данные (кошелек, приватный ключ, API ключ) "
-        "шифруются с помощью закрытого ключа и хранятся в зашифрованном виде.\n"
-        "Данные не используются в первоначальном виде и не передаются третьим лицам.\n\n"
-        "Введите адрес вашего кошелька Opinion.trade:",
+    # Отправляем изображение с подписью в одном сообщении
+    photo_path = Path(__file__).parent.parent / "files" / "spot_addr.png"
+    
+    photo = FSInputFile(str(photo_path))
+    await message.answer_photo(
+        photo,
+        caption="""🔐 Bot Registration
+    
+⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
+The data is never used in its raw form and is not shared with third parties.
+
+Please enter your Balance spot address found <a href="https://app.opinion.trade/profile">in your profile</a>:""",
         parse_mode="HTML"
     )
     await state.set_state(RegistrationStates.waiting_wallet)
@@ -629,11 +636,11 @@ async def process_wallet(message: Message, state: FSMContext):
     wallet_address = message.text.strip()
     
     if not wallet_address or len(wallet_address) < 10:
-        await message.answer("❌ Неверный формат адреса кошелька. Попробуйте еще раз:")
+        await message.answer("""❌ Invalid wallet address format. Please try again:""")
         return
     
     await state.update_data(wallet_address=wallet_address)
-    await message.answer("Введите ваш приватный ключ:")
+    await message.answer("Please enter your private key:")
     await state.set_state(RegistrationStates.waiting_private_key)
 
 
@@ -643,11 +650,11 @@ async def process_private_key(message: Message, state: FSMContext):
     private_key = message.text.strip()
     
     if not private_key or len(private_key) < 20:
-        await message.answer("❌ Неверный формат приватного ключа. Попробуйте еще раз:")
+        await message.answer("""❌ Invalid private key format. Please try again:""")
         return
     
     await state.update_data(private_key=private_key)
-    await message.answer("Введите ваш API ключ от Opinion Labs:")
+    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""")
     await state.set_state(RegistrationStates.waiting_api_key)
 
 
@@ -657,7 +664,7 @@ async def process_api_key(message: Message, state: FSMContext):
     api_key = message.text.strip()
     
     if not api_key:
-        await message.answer("❌ Неверный формат API ключа. Попробуйте еще раз:")
+        await message.answer("""❌ Invalid API key format. Please try again:""")
         return
     
     data = await state.get_data()
@@ -673,9 +680,11 @@ async def process_api_key(message: Message, state: FSMContext):
     
     await state.clear()
     await message.answer(
-        "✅ <b>Регистрация завершена!</b>\n\n"
-        "Ваши данные сохранены в зашифрованном виде.\n\n"
-        "Используйте команду /make_market для размещения ордера.",
+        """✅ Registration Completed!
+
+Your data has been encrypted.
+
+Use the /make_market command to start a new farm.""",
         parse_mode="HTML"
     )
 
@@ -687,17 +696,18 @@ async def cmd_make_market(message: Message, state: FSMContext):
     
     if not user:
         await message.answer(
-            "❌ Вы не зарегистрированы. Используйте команду /start для регистрации."
+            """❌ You are not registered. Use the /start command to register."""
         )
         return
     
     # Создаем клавиатуру с кнопкой "Отменить"
     builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отменить", callback_data="cancel")
+    builder.button(text="✖️ Cancel", callback_data="cancel")
     
     await message.answer(
-        "📊 <b>Размещение лимитного ордера</b>\n\n"
-        "Введите ссылку на рынок Opinion.trade:",
+        """📊 Place a Limit Order
+
+Please enter the Opinion.trade market link:""",
         parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
@@ -709,7 +719,6 @@ async def cmd_get_db(message: Message):
     """Обработчик команды /get_db - экспорт базы данных в CSV (только для администратора)."""
     # Проверяем права администратора
     if message.from_user.id != settings.admin_telegram_id:
-        await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
     
     try:
@@ -724,12 +733,12 @@ async def cmd_get_db(message: Message):
         
         await message.answer_document(
             document=csv_file,
-            caption="📊 Экспорт базы данных пользователей"
+            caption="📊 User database export"
         )
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
     except Exception as e:
         logger.error(f"Ошибка экспорта базы данных: {e}")
-        await message.answer(f"❌ Ошибка при экспорте базы данных: {e}")
+        await message.answer(f"""❌ Error exporting database: {e}""")
 
 
 @router.message(MarketOrderStates.waiting_url)
@@ -740,9 +749,9 @@ async def process_market_url(message: Message, state: FSMContext):
     
     if not market_id:
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         await message.answer(
-            "❌ Не удалось извлечь Market ID из URL. Попробуйте еще раз:",
+            """❌ Failed to extract Market ID from URL. Please try again:""",
             reply_markup=builder.as_markup()
         )
         return
@@ -754,11 +763,11 @@ async def process_market_url(message: Message, state: FSMContext):
     client = create_client(user)
     
     # Получаем информацию о рынке
-    await message.answer("📊 Получение информации о рынке...")
+    await message.answer("""📊 Getting market information...""")
     market = await get_market_info(client, market_id, is_categorical)
     
     if not market:
-        await message.answer("❌ Не удалось получить информацию о рынке. Проверьте URL.")
+        await message.answer("""❌ Failed to get market information. Please check the URL.""")
         await state.clear()
         return
     
@@ -767,7 +776,7 @@ async def process_market_url(message: Message, state: FSMContext):
         submarkets = get_categorical_market_submarkets(market)
         
         if not submarkets:
-            await message.answer("❌ Не удалось найти подрынки в категориальном рынке")
+            await message.answer("""❌ Failed to find submarkets in the categorical market""")
             await state.clear()
             return
         
@@ -788,14 +797,16 @@ async def process_market_url(message: Message, state: FSMContext):
         # Создаем клавиатуру для выбора подрынка
         builder = InlineKeyboardBuilder()
         for i, subm in enumerate(submarket_list, 1):
-            builder.button(text=f"{i}. {subm['title'][:30]}", callback_data=f"submarket_{i}")
-        builder.button(text="❌ Отменить", callback_data="cancel")
+            builder.button(text=f"{subm['title'][:30]}", callback_data=f"submarket_{i}")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         builder.adjust(1)
         
         await message.answer(
-            f"📋 <b>Категориальный рынок</b>\n\n"
-            f"Найдено подрынков: {len(submarket_list)}\n\n"
-            f"Выберите подрынок:",
+            f"""📋 <b>Categorical Market</b>
+
+Found submarkets: {len(submarket_list)}
+
+Select a submarket:""",
             parse_mode="HTML",
             reply_markup=builder.as_markup()
         )
@@ -808,7 +819,7 @@ async def process_market_url(message: Message, state: FSMContext):
     no_token_id = getattr(market, 'no_token_id', None)
     
     if not yes_token_id or not no_token_id:
-        await message.answer("❌ Не удалось определить токены рынка")
+        await message.answer("""❌ Failed to determine market tokens""")
         await state.clear()
         return
     
@@ -830,12 +841,13 @@ async def process_market_data(message: Message, state: FSMContext, market, marke
     
     if not yes_has_orders and not no_has_orders:
         await message.answer(
-            "⚠️ <b>Рынок неактивен</b>\n\n"
-            "В стаканах ордеров нет заявок (bids и asks пустые).\n"
-            "Возможные причины:\n"
-            "• Рынок истек или закрыт\n"
-            "• Рынок еще не начал торговаться\n"
-            "• Нет ликвидности на рынке",
+            """⚠️ <b>Market is inactive</b>
+
+Order books have no orders (bids and asks are empty).
+Possible reasons:
+• Market has expired or closed
+• Market has not started trading yet
+• No liquidity on the market""",
             parse_mode="HTML"
         )
         await state.clear()
@@ -858,31 +870,51 @@ async def process_market_data(message: Message, state: FSMContext, market, marke
         client=client
     )
     
-    # Выводим информацию о рынке
-    spread_text = ""
+    # Формируем информацию о рынке в новом формате
+    market_info_parts = []
     
     # Информация для YES токена
     if yes_info['best_bid'] is not None or yes_info['best_ask'] is not None:
-        yes_bid_text = f"Bid: {yes_info['best_bid'] * 100:.2f}%" if yes_info['best_bid'] is not None else "Bid: нет"
-        yes_ask_text = f"Ask: {yes_info['best_ask'] * 100:.2f}%" if yes_info['best_ask'] is not None else "Ask: нет"
-        spread_part = f", Спред {yes_info['spread'] * 100:.2f}% ({yes_info['spread_pct']:.2f}%)" if yes_info['spread'] else ""
-        spread_text += f"\n✅ YES: {yes_bid_text} | {yes_ask_text}{spread_part}, Ликвидность {yes_info['total_liquidity']:.2f}"
+        yes_bid = f"{yes_info['best_bid'] * 100:.2f}¢" if yes_info['best_bid'] is not None else "no"
+        yes_ask = f"{yes_info['best_ask'] * 100:.2f}¢" if yes_info['best_ask'] is not None else "no"
+        yes_lines = [f"✅ YES: Bid: {yes_bid} | Ask: {yes_ask}"]
+        
+        if yes_info['spread']:
+            spread_line = f"  Spread: {yes_info['spread'] * 100:.2f}¢ ({yes_info['spread_pct']:.2f}%) | Liquidity: ${yes_info['total_liquidity']:,.2f}"
+            yes_lines.append(spread_line)
+        elif yes_info['total_liquidity'] > 0:
+            yes_lines.append(f"  Liquidity: ${yes_info['total_liquidity']:,.2f}")
+        
+        market_info_parts.append("\n".join(yes_lines))
     
     # Информация для NO токена
     if no_info['best_bid'] is not None or no_info['best_ask'] is not None:
-        no_bid_text = f"Bid: {no_info['best_bid'] * 100:.2f}%" if no_info['best_bid'] is not None else "Bid: нет"
-        no_ask_text = f"Ask: {no_info['best_ask'] * 100:.2f}%" if no_info['best_ask'] is not None else "Ask: нет"
-        spread_part = f", Спред {no_info['spread'] * 100:.2f}% ({no_info['spread_pct']:.2f}%)" if no_info['spread'] else ""
-        spread_text += f"\n❌ NO: {no_bid_text} | {no_ask_text}{spread_part}, Ликвидность {no_info['total_liquidity']:.2f}"
+        no_bid = f"{no_info['best_bid'] * 100:.2f}¢" if no_info['best_bid'] is not None else "no"
+        no_ask = f"{no_info['best_ask'] * 100:.2f}¢" if no_info['best_ask'] is not None else "no"
+        no_lines = [f"❌ NO: Bid: {no_bid} | Ask: {no_ask}"]
+        
+        if no_info['spread']:
+            spread_line = f"  Spread: {no_info['spread'] * 100:.2f}¢ ({no_info['spread_pct']:.2f}%) | Liquidity: ${no_info['total_liquidity']:,.2f}"
+            no_lines.append(spread_line)
+        elif no_info['total_liquidity'] > 0:
+            no_lines.append(f"  Liquidity: ${no_info['total_liquidity']:,.2f}")
+        
+        market_info_parts.append("\n".join(no_lines))
     
     # Создаем клавиатуру с кнопкой "Отменить"
     builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отменить", callback_data="cancel")
+    builder.button(text="✖️ Cancel", callback_data="cancel")
+    
+    # Формируем полное сообщение с пустой строкой между блоками
+    market_info_text = "\n\n".join(market_info_parts) if market_info_parts else ""
     
     await message.answer(
-        f"✅ <b>Рынок найден:</b> {market.market_title}\n"
-        f"📊 Market ID: {market_id}{spread_text}\n\n"
-        f"💰 Введите сумму для фарминга (в USDT, например, 10):",
+        f"""📋 Market Found: {market.market_title}
+📊 Market ID: {market_id}
+
+{market_info_text}
+
+💰 Enter the amount for farming (in USDT, e.g. 10):""",
         parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
@@ -899,7 +931,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
         submarkets = data.get('submarkets', [])
         
         if submarket_index < 0 or submarket_index >= len(submarkets):
-            await callback.message.edit_text("❌ Неверный выбор подрынка")
+            await callback.message.edit_text("""❌ Invalid submarket selection""")
             await state.clear()
             await callback.answer()
             return
@@ -908,19 +940,19 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
         submarket_id = selected_submarket['id']
         
         if not submarket_id:
-            await callback.message.edit_text("❌ Не удалось определить ID подрынка")
+            await callback.message.edit_text("""❌ Failed to determine submarket ID""")
             await state.clear()
             await callback.answer()
             return
         
         # Получаем полную информацию о выбранном подрынке
         client = data['client']
-        await callback.message.edit_text(f"📊 Получение информации о подрынке: {selected_submarket['title']}...")
+        await callback.message.edit_text(f"""📊 Getting submarket information: {selected_submarket['title']}...""")
         
         market = await get_market_info(client, submarket_id, is_categorical=False)
         
         if not market:
-            await callback.message.edit_text("❌ Не удалось получить информацию о подрынке")
+            await callback.message.edit_text("""❌ Failed to get submarket information""")
             await state.clear()
             await callback.answer()
             return
@@ -930,7 +962,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
         no_token_id = getattr(market, 'no_token_id', None)
         
         if not yes_token_id or not no_token_id:
-            await callback.message.edit_text("❌ Не удалось определить токены подрынка")
+            await callback.message.edit_text("""❌ Failed to determine submarket tokens""")
             await state.clear()
             await callback.answer()
             return
@@ -941,7 +973,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
         await process_market_data(callback.message, state, market, submarket_id, client, yes_token_id, no_token_id)
     except (ValueError, IndexError, KeyError) as e:
         logger.error(f"Ошибка обработки выбора подрынка: {e}")
-        await callback.message.edit_text("❌ Ошибка обработки выбора подрынка")
+        await callback.message.edit_text("""❌ Error processing submarket selection""")
         await state.clear()
         await callback.answer()
 
@@ -954,9 +986,9 @@ async def process_amount(message: Message, state: FSMContext):
         
         if amount <= 0:
             builder = InlineKeyboardBuilder()
-            builder.button(text="❌ Отменить", callback_data="cancel")
+            builder.button(text="✖️ Cancel", callback_data="cancel")
             await message.answer(
-                "❌ Сумма должна быть положительным числом. Попробуйте еще раз:",
+                """❌ Amount must be a positive number. Please try again:""",
                 reply_markup=builder.as_markup()
             )
             return
@@ -969,10 +1001,11 @@ async def process_amount(message: Message, state: FSMContext):
         
         if not has_balance:
             builder = InlineKeyboardBuilder()
-            builder.button(text="❌ Отменить", callback_data="cancel")
+            builder.button(text="✖️ Cancel", callback_data="cancel")
             await message.answer(
-                f"❌ Недостаточно USDT баланса для размещения ордера на {amount} USDT.\n"
-                "Введите другую сумму:",
+                f"""❌ Insufficient USDT balance to place an order for {amount} USDT.
+
+Enter a different amount:""",
                 reply_markup=builder.as_markup()
             )
             return
@@ -983,20 +1016,21 @@ async def process_amount(message: Message, state: FSMContext):
         builder = InlineKeyboardBuilder()
         builder.button(text="✅ YES", callback_data="side_yes")
         builder.button(text="❌ NO", callback_data="side_no")
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         builder.adjust(2)
         
         await message.answer(
-            f"✅ USDT баланс достаточен для размещения BUY ордера на {amount} USDT\n\n"
-            "📈 Выберите сторону:",
+            f"""✅ USDT balance is sufficient to place a BUY order for {amount} USDT
+
+📈 Select side:""",
             reply_markup=builder.as_markup()
         )
         await state.set_state(MarketOrderStates.waiting_side)
     except ValueError:
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         await message.answer(
-            "❌ Неверный формат суммы. Введите число:",
+            """❌ Invalid amount format. Enter a number:""",
             reply_markup=builder.as_markup()
         )
 
@@ -1012,13 +1046,87 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
         token_id = data['yes_token_id']
         token_name = "YES"
         current_price = data['yes_info']['mid_price']
+        orderbook = data.get('yes_orderbook')
     else:
         token_id = data['no_token_id']
         token_name = "NO"
         current_price = data['no_info']['mid_price']
+        orderbook = data.get('no_orderbook')
     
     if not current_price:
-        await callback.message.answer("❌ Не удалось определить текущую цену для выбранного токена")
+        await callback.message.answer("❌ Failed to determine current price for selected token")
+        await state.clear()
+        await callback.answer()
+        return
+    
+    if not orderbook:
+        await callback.message.answer("❌ Failed to get orderbook for selected token")
+        await state.clear()
+        await callback.answer()
+        return
+    
+    # Извлекаем биды и аски из стакана
+    bids = orderbook.bids if hasattr(orderbook, 'bids') else []
+    asks = orderbook.asks if hasattr(orderbook, 'asks') else []
+    
+    # Сортируем биды по убыванию цены (самые высокие первые)
+    # Создаем список кортежей (цена, объект бида) для сортировки
+    sorted_bids = []
+    if bids and len(bids) > 0:
+        for bid in bids:
+            if hasattr(bid, 'price'):
+                try:
+                    price = float(bid.price)
+                    sorted_bids.append((price, bid))
+                except (ValueError, TypeError):
+                    continue
+        # Сортируем по убыванию цены (reverse=True)
+        sorted_bids.sort(key=lambda x: x[0], reverse=True)
+    
+    # Сортируем аски по возрастанию цены (самые низкие первые)
+    sorted_asks = []
+    if asks and len(asks) > 0:
+        for ask in asks:
+            if hasattr(ask, 'price'):
+                try:
+                    price = float(ask.price)
+                    sorted_asks.append((price, ask))
+                except (ValueError, TypeError):
+                    continue
+        # Сортируем по возрастанию цены
+        sorted_asks.sort(key=lambda x: x[0])
+    
+    # Получаем лучшие 5 бидов (самые высокие цены)
+    best_bids = []
+    for i, (price, bid) in enumerate(sorted_bids[:5]):
+        price_cents = price * 100
+        best_bids.append(price_cents)
+    
+    # Получаем лучшие 5 асков (самые низкие цены)
+    best_asks = []
+    for i, (price, ask) in enumerate(sorted_asks[:5]):
+        price_cents = price * 100
+        best_asks.append(price_cents)
+    
+    # Находим максимальный далекий бид (самый низкий из всех бидов)
+    last_bid = None
+    if sorted_bids:
+        # Бид с самой низкой ценой (последний в отсортированном списке)
+        last_bid_price = sorted_bids[-1][0]
+        last_bid = last_bid_price * 100
+    
+    # Находим максимальный далекий аск (самый высокий из всех асков)
+    last_ask = None
+    if sorted_asks:
+        # Аск с самой высокой ценой (последний в отсортированном списке)
+        last_ask_price = sorted_asks[-1][0]
+        last_ask = last_ask_price * 100
+    
+    # Лучший бид (самый высокий) - первый в отсортированном списке
+    best_bid = best_bids[0] if best_bids else None
+    
+    if not best_bid:
+        await callback.message.answer("❌ No bids found in orderbook")
         await state.clear()
         await callback.answer()
         return
@@ -1043,21 +1151,36 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
         current_price=current_price,
         tick_size=tick_size,
         max_offset_buy=max_offset_buy,
-        max_offset_sell=max_offset_sell
+        max_offset_sell=max_offset_sell,
+        best_bid=best_bid  # Сохраняем лучший бид для отображения
     )
+    
+    # Формируем текст с лучшими бидами
+    bids_text = "Best 5 bids:\n"
+    for i, bid_price in enumerate(best_bids, 1):
+        bids_text += f"{i}. {bid_price:.1f} ¢\n"
+    if last_bid and last_bid not in best_bids:
+        bids_text += f"...\n{last_bid:.1f} ¢\n"
+    
+    # Формируем текст с лучшими асками
+    asks_text = "Best 5 asks:\n"
+    for i, ask_price in enumerate(best_asks, 1):
+        asks_text += f"{i}. {ask_price:.1f} ¢\n"
+    if last_ask and last_ask not in best_asks:
+        asks_text += f"...\n{last_ask:.1f} ¢\n"
     
     # Создаем клавиатуру с кнопкой "Отменить"
     builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отменить", callback_data="cancel")
+    builder.button(text="✖️ Cancel", callback_data="cancel")
     
     await callback.message.edit_text(
-        f"✅ Выбрано: {token_name}\n\n"
-        f"💵 Текущая цена: {current_price:.6f} ({current_price * 100:.2f}%)\n\n"
-        f"⚙️ <b>Диапазон тиков:</b>\n"
-        f"• Минимум: {min_offset} тиков\n"
-        f"• Максимум для BUY: {max_offset_buy} тиков\n"
-        f"• Максимум для SELL: {max_offset_sell} тиков\n\n"
-        f"Введите количество тиков от текущей цены:",
+        f"""✅ Selected: {token_name}
+
+💵 Current price: {current_price:.6f} ({current_price * 100:.2f}¢)
+
+{bids_text}
+{asks_text}
+Set the price offset (in ¢) relative to the best bid ({best_bid:.1f}¢). For example 0.1:""",
         parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
@@ -1067,37 +1190,56 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
 
 @router.message(MarketOrderStates.waiting_offset_ticks)
 async def process_offset_ticks(message: Message, state: FSMContext):
-    """Обработка ввода количества тиков с валидацией."""
+    """
+    Обработка ввода offset в центах.
+    Пользователь вводит offset в центах, мы конвертируем в тики для валидации и дальнейшей работы.
+    """
     try:
-        offset_ticks = int(message.text.strip())
+        # Пользователь вводит offset в центах (например: 0.1)
+        offset_cents = float(message.text.strip())
         
         data = await state.get_data()
-        min_offset = 0
-        max_offset_buy = data.get('max_offset_buy', 0)
-        max_offset_sell = data.get('max_offset_sell', 0)
+        best_bid = data.get('best_bid')  # Лучший бид в центах
         current_price = data['current_price']
         tick_size = data.get('tick_size', 0.001)
+        max_offset_buy = data.get('max_offset_buy', 0)
+        max_offset_sell = data.get('max_offset_sell', 0)
+        
+        if not best_bid:
+            await message.answer("❌ Error: best bid not found")
+            await state.clear()
+            return
+        
+        # Конвертируем offset в центах в тики
+        # 1 цент = 0.01 в долях, 1 тик = 0.001 в долях
+        # offset_cents в долях = offset_cents / 100
+        # offset_ticks = (offset_cents / 100) / tick_size = offset_cents / (100 * tick_size)
+        # При tick_size = 0.001: offset_ticks = offset_cents / 0.1 = offset_cents * 10
+        offset_ticks = int(round(offset_cents / (100 * tick_size)))
         
         # Валидация: проверяем, что значение в допустимом диапазоне
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         
+        min_offset = 0
         if offset_ticks < min_offset:
             await message.answer(
-                f"❌ Количество тиков должно быть не меньше {min_offset}.\n"
-                f"Введите значение от {min_offset} до {max(max_offset_buy, max_offset_sell)}:",
+                f"❌ Offset must be at least {min_offset} cents.\n"
+                f"Enter a value from {min_offset} to {max(max_offset_buy, max_offset_sell) * tick_size * 100:.1f} cents:",
                 reply_markup=builder.as_markup()
             )
             return
         
         # Проверяем максимальное значение (берем максимум из BUY и SELL)
         max_offset = max(max_offset_buy, max_offset_sell)
+        max_offset_cents = max_offset * tick_size * 100  # Конвертируем в центы для сообщения
+        
         if offset_ticks > max_offset:
             await message.answer(
-                f"❌ Количество тиков слишком большое!\n\n"
-                f"• Максимум для BUY: {max_offset_buy} тиков\n"
-                f"• Максимум для SELL: {max_offset_sell} тиков\n\n"
-                f"Введите значение от {min_offset} до {max_offset}:",
+                f"❌ Offset is too large!\n\n"
+                f"• Maximum for BUY: {max_offset_buy * tick_size * 100:.1f} cents\n"
+                f"• Maximum for SELL: {max_offset_sell * tick_size * 100:.1f} cents\n\n"
+                f"Enter a value from {min_offset} to {max_offset_cents:.1f} cents:",
                 reply_markup=builder.as_markup()
             )
             return
@@ -1109,41 +1251,53 @@ async def process_offset_ticks(message: Message, state: FSMContext):
         
         # Проверяем, допустимо ли направление BUY с таким количеством тиков
         if offset_ticks <= max_offset_buy:
-            builder.button(text="📈 BUY (покупка, ниже текущей цены)", callback_data="dir_buy")
+            builder.button(text="📈 BUY (buy, below current price)", callback_data="dir_buy")
         
         # Проверяем, допустимо ли направление SELL с таким количеством тиков
         if offset_ticks <= max_offset_sell:
-            builder.button(text="📉 SELL (продажа, выше текущей цены)", callback_data="dir_sell")
+            builder.button(text="📉 SELL (sell, above current price)", callback_data="dir_sell")
         
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         builder.adjust(1)
         
         # Если ни одно направление не доступно (не должно произойти после валидации)
         if not builder.buttons:
             await message.answer(
-                f"❌ Ошибка: Количество тиков {offset_ticks} недопустимо для обоих направлений.\n"
-                f"Введите значение от {min_offset} до {max_offset}:"
+                f"❌ Error: Offset {offset_cents:.1f} cents is invalid for both directions.\n"
+                f"Enter a value from {min_offset} to {max_offset_cents:.1f} cents:"
             )
             return
         
+        # Конвертируем цены в центы для отображения
+        current_price_cents = current_price * 100
+        tick_size_cents = tick_size * 100
+        
+        # Форматируем без лишних нулей
+        current_price_str = f"{current_price_cents:.2f}".rstrip('0').rstrip('.')
+        tick_size_str = f"{tick_size_cents:.2f}".rstrip('0').rstrip('.')
+        
         await message.answer(
-            f"✅ Количество тиков: {offset_ticks}\n\n"
-            f"📊 Настройки:\n"
-            f"• Текущая цена: {current_price:.6f}\n"
-            f"• Размер тика: {tick_size}\n\n"
-            f"Выберите направление ордера:",
+            f"""✅ Offset: {offset_cents:.1f}¢ ({offset_ticks} ticks)
+
+📊 Settings:
+• Current price: {current_price_str}¢
+• Tick size: {tick_size_str}¢
+
+Select order direction:""",
             reply_markup=builder.as_markup()
         )
         await state.set_state(MarketOrderStates.waiting_direction)
     except ValueError:
         data = await state.get_data()
+        tick_size = data.get('tick_size', 0.001)
         max_offset_buy = data.get('max_offset_buy', 0)
         max_offset_sell = data.get('max_offset_sell', 0)
         max_offset = max(max_offset_buy, max_offset_sell)
+        max_offset_cents = max_offset * tick_size * 100
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отменить", callback_data="cancel")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
         await message.answer(
-            f"❌ Неверный формат. Введите целое число от 0 до {max_offset}:",
+            f"❌ Invalid format. Enter a number from 0 to {max_offset_cents:.1f} cents:",
             reply_markup=builder.as_markup()
         )
 
@@ -1164,8 +1318,9 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     # Дополнительная валидация: проверяем, что offset допустим для выбранного направления
     if direction == "BUY" and offset_ticks > max_offset_buy:
         await callback.message.answer(
-            f"❌ Ошибка: Количество тиков {offset_ticks} слишком большое для BUY!\n"
-            f"Максимум для BUY: {max_offset_buy} тиков"
+            f"""❌ Error: Offset {offset_ticks} ticks is too large for BUY!
+
+Maximum for BUY: {max_offset_buy} ticks"""
         )
         await state.clear()
         await callback.answer()
@@ -1173,8 +1328,9 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     
     if direction == "SELL" and offset_ticks > max_offset_sell:
         await callback.message.answer(
-            f"❌ Ошибка: Количество тиков {offset_ticks} слишком большое для SELL!\n"
-            f"Максимум для SELL: {max_offset_sell} тиков"
+            f"""❌ Error: Offset {offset_ticks} ticks is too large for SELL!
+
+Maximum for SELL: {max_offset_sell} ticks"""
         )
         await state.clear()
         await callback.answer()
@@ -1185,8 +1341,9 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     
     if not is_valid or target_price <= 0:
         await callback.message.answer(
-            f"❌ Ошибка: Рассчитанная цена ({target_price:.6f}) невалидна!\n"
-            f"Offset {offset_ticks} тиков слишком большой для текущей цены {current_price:.6f}"
+            f"""❌ Error: Calculated price ({target_price:.6f}) is invalid!
+
+Offset {offset_ticks} ticks is too large for current price {current_price:.6f}"""
         )
         await state.clear()
         await callback.answer()
@@ -1202,32 +1359,40 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     
     # Формируем информацию для подтверждения
     market = data['market']
-    market_id = data['market_id']
     amount = data['amount']
+    tick_size = data.get('tick_size', 0.001)
     
-    info_text = data['yes_info'] if token_name == "YES" else data['no_info']
-    spread_text = ""
-    if info_text['spread']:
-        spread_text = f"\n• Спред: {info_text['spread']:.6f} ({info_text['spread_pct']:.2f}%)\n• Ликвидность: {info_text['total_liquidity']:.2f}"
+    # Конвертируем offset из тиков в центы
+    offset_cents = offset_ticks * tick_size * 100
+    
+    # Конвертируем цены в центы и убираем лишние нули
+    current_price_cents = current_price * 100
+    target_price_cents = target_price * 100
+    
+    # Форматируем цены без лишних нулей
+    current_price_str = f"{current_price_cents:.2f}".rstrip('0').rstrip('.')
+    target_price_str = f"{target_price_cents:.2f}".rstrip('0').rstrip('.')
+    offset_cents_str = f"{offset_cents:.2f}".rstrip('0').rstrip('.')
     
     confirm_text = (
-        f"📋 <b>Подтверждение настроек</b>\n\n"
-        f"📊 <b>Рынок:</b>\n"
-        f"• Market ID: {market_id}\n"
-        f"• Название: {market.market_title}\n"
-        f"• Токен: {token_name}\n\n"
-        f"💰 <b>Ордер:</b>\n"
-        f"• Направление: {direction} {token_name}\n"
-        f"• Текущая цена: {current_price:.6f}\n"
-        f"• Целевая цена: {target_price:.6f}\n"
-        f"• Отклонение: {offset_ticks} тиков ({abs(current_price - target_price):.6f})\n"
-        f"• Сумма: {amount} USDT{spread_text}\n\n"
-        f"⚠️ Ордер будет размещён на {offset_ticks} тиков от текущей цены и НЕ исполнится сразу."
+        f"""📋 Settings Confirmation
+
+📊 Market:
+Name: {market.market_title}
+Outcome: {token_name}
+
+💰 Farm settings:
+Side: {direction} {token_name}
+Current price: {current_price_str}¢
+Current target price: {target_price_str}¢
+Offset: {offset_cents_str}¢
+
+Amount: {amount} USDT"""
     )
     
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Разместить ордер", callback_data="confirm_yes")
-    builder.button(text="❌ Отменить", callback_data="cancel")
+    builder.button(text="✅ Place Order", callback_data="confirm_yes")
+    builder.button(text="✖️ Cancel", callback_data="cancel")
     builder.adjust(2)
     
     await callback.message.edit_text(confirm_text, parse_mode="HTML", reply_markup=builder.as_markup())
@@ -1243,14 +1408,16 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     """
     try:
         # Пытаемся отредактировать сообщение (если это inline кнопка)
-        await callback.message.edit_text("❌ Размещение ордера отменено")
+        await callback.message.edit_text("❌ Order placement cancelled")
     except Exception:
         # Если не удалось отредактировать, отправляем новое сообщение
-        await callback.message.answer("❌ Размещение ордера отменено")
+        await callback.message.answer("❌ Order placement cancelled")
     
     await state.clear()
-    await callback.answer("Отменено")
-
+    await callback.answer()
+    
+    # Отправляем сообщение с инструкцией
+    await callback.message.answer("Use the /make_market command to start a new farm.")
 
 @router.callback_query(F.data.startswith("confirm_"), MarketOrderStates.waiting_confirm)
 async def process_confirm(callback: CallbackQuery, state: FSMContext):
@@ -1258,7 +1425,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
     confirm = callback.data.split("_")[1]
     
     if confirm != "yes":
-        await callback.message.edit_text("❌ Размещение ордера отменено")
+        await callback.message.edit_text("""❌ Order placement cancelled""")
         await state.clear()
         await callback.answer()
         return
@@ -1275,31 +1442,45 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         'token_name': data['token_name']
     }
     
-    await callback.message.edit_text("🔄 Размещение ордера...")
+    await callback.message.edit_text("""🔄 Placing order...""")
     
     success, order_id = await place_order(client, order_params)
     
     if success:
         await callback.message.edit_text(
-            f"✅ <b>Ордер успешно размещён!</b>\n\n"
-            f"📋 <b>Итоговая информация:</b>\n"
-            f"• Направление: {data['direction']} {data['token_name']}\n"
-            f"• Цена: {data['target_price']:.6f}\n"
-            f"• Сумма: {data['amount']} USDT\n"
-            f"• Offset: {data['offset_ticks']} тиков\n"
-            f"• Order ID: {order_id}\n\n"
-            f"⚠️ Ордер НЕ исполнится сразу, так как размещён на {data['offset_ticks']} тиков от текущей цены.",
+            f"""✅ <b>Order successfully placed!</b>
+
+📋 <b>Final Information:</b>
+• Side: {data['direction']} {data['token_name']}
+• Price: {data['target_price']:.6f}
+• Amount: {data['amount']} USDT
+• Offset: {data['offset_ticks']} ticks
+• Order ID: {order_id}""",
             parse_mode="HTML"
         )
     else:
         await callback.message.edit_text(
-            f"❌ <b>Не удалось разместить ордер</b>\n\n"
-            f"Проверьте баланс и параметры ордера.",
+            f"""❌ <b>Failed to place order</b>
+
+Please check your balance and order parameters.""",
             parse_mode="HTML"
         )
     
     await state.clear()
     await callback.answer()
+
+
+# ============================================================================
+# Общий обработчик для всех сообщений (заглушка)
+# ============================================================================
+
+@router.message()
+async def handle_unknown_message(message: Message):
+    """
+    Обработчик для всех сообщений, которые не попали в другие хендлеры.
+    Отвечает стандартным сообщением с инструкцией.
+    """
+    await message.answer("Use the /make_market command to start a new farm.")
 
 
 # ============================================================================

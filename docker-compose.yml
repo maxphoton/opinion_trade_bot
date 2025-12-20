@@ -1,0 +1,19 @@
+services:
+  bot:
+    build: .
+    container_name: opinion_trade_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      # Прокидываем папку bot наружу для сохранения БД и других файлов
+      - ./bot:/app/bot
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - trade_bot_network
+
+networks:
+  trade_bot_network:
+    driver: bridge
+
