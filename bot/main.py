@@ -654,7 +654,8 @@ async def process_private_key(message: Message, state: FSMContext):
         return
     
     await state.update_data(private_key=private_key)
-    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""")
+    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""",
+        parse_mode="HTML")
     await state.set_state(RegistrationStates.waiting_api_key)
 
 
