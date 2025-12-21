@@ -66,7 +66,7 @@ async def get_orders_list_data(dialog_manager: DialogManager, **kwargs):
     orders_page = all_orders[start_idx:end_idx]
     
     # Формируем текст
-    text = f"""📋 <b>My Orders</b>
+    text = f"""📋 <b>My Orders (created in bot)</b>
 
 Total orders: {total}
 Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if total > 0 else 1}

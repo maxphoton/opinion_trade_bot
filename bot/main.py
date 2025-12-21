@@ -46,6 +46,7 @@ from spam_protection import AntiSpamMiddleware
 from aiogram_dialog import setup_dialogs
 from orders_dialog import orders_dialog, OrdersSG
 from client_factory import create_client, parse_proxy_config, setup_proxy
+from sync_orders import async_sync_all_orders
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -284,8 +285,13 @@ async def check_usdt_balance(client: Client, required_amount: float) -> Tuple[bo
         return False, {}
 
 
-async def place_order(client: Client, order_params: dict) -> Tuple[bool, Optional[str]]:
-    """Размещает ордер на рынке."""
+async def place_order(client: Client, order_params: dict) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Размещает ордер на рынке.
+    
+    Returns:
+        Tuple[bool, Optional[str], Optional[str]]: (success, order_id, error_message)
+    """
     try:
         client.enable_trading()
         
@@ -297,12 +303,14 @@ async def place_order(client: Client, order_params: dict) -> Tuple[bool, Optiona
         MAX_PRICE = 0.999
         
         if price_rounded < MIN_PRICE:
-            logger.error(f"Цена {price_rounded} меньше минимальной {MIN_PRICE}")
-            return False, None
+            error_msg = f"Price {price_rounded} is less than minimum {MIN_PRICE}"
+            logger.error(error_msg)
+            return False, None, error_msg
         
         if price_rounded > MAX_PRICE:
-            logger.error(f"Цена {price_rounded} больше максимальной {MAX_PRICE}")
-            return False, None
+            error_msg = f"Price {price_rounded} is greater than maximum {MAX_PRICE}"
+            logger.error(error_msg)
+            return False, None, error_msg
         
         order_data = PlaceOrderDataInput(
             marketId=order_params['market_id'],
@@ -325,13 +333,15 @@ async def place_order(client: Client, order_params: dict) -> Tuple[bool, Optiona
                     elif hasattr(order_data_obj, 'id'):
                         order_id = order_data_obj.id
             
-            return True, str(order_id)
+            return True, str(order_id), None
         else:
-            logger.error(f"Ошибка размещения ордера: {result.errmsg}")
-            return False, None
+            error_msg = result.errmsg if hasattr(result, 'errmsg') and result.errmsg else f"Error code: {result.errno}"
+            logger.error(f"Ошибка размещения ордера: {error_msg}")
+            return False, None, error_msg
     except Exception as e:
-        logger.error(f"Ошибка размещения ордера: {e}")
-        return False, None
+        error_msg = str(e)
+        logger.error(f"Ошибка размещения ордера: {error_msg}")
+        return False, None, error_msg
 
 
 # ============================================================================
@@ -1193,7 +1203,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text("""🔄 Placing order...""")
     
-    success, order_id = await place_order(client, order_params)
+    success, order_id, error_message = await place_order(client, order_params)
     
     if success:
         # Сохраняем ордер в базу данных
@@ -1242,11 +1252,10 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Order ID: {order_id}"""
         )
     else:
-        await callback.message.edit_text(
-            f"""❌ <b>Failed to place order</b>
+        error_text = f"""❌ <b>Failed to place order</b>
 
-Please check your balance and order parameters."""
-        )
+{error_message if error_message else 'Please check your balance and order parameters.'}"""
+        await callback.message.edit_text(error_text)
     
     await state.clear()
     await callback.answer()
@@ -1272,6 +1281,24 @@ Use the /orders command to manage your orders."""
 # Главная функция
 # ============================================================================
 
+async def background_sync_task():
+    """Фоновая задача для периодической синхронизации ордеров."""
+    # Ждем 30 секунд после старта бота перед первой синхронизацией
+    await asyncio.sleep(30)
+    
+    # Интервал синхронизации: 60 секунд (1 минута)
+    SYNC_INTERVAL = 60
+    
+    while True:
+        try:
+            await async_sync_all_orders(bot)
+        except Exception as e:
+            logger.error(f"Error in background sync task: {e}")
+        
+        # Ждем перед следующей синхронизацией
+        await asyncio.sleep(SYNC_INTERVAL)
+
+
 async def main():
     """Главная функция запуска бота."""
     # Настраиваем прокси для всех API запросов (если указан в настройках)
@@ -1292,6 +1319,10 @@ async def main():
     
     # Регистрируем роутер
     dp.include_router(router)
+    
+    # Запускаем фоновую задачу синхронизации ордеров
+    asyncio.create_task(background_sync_task())
+    logger.info("Background sync task started")
     
     # Отправляем сообщение админу при старте (если указан)
     if settings.admin_telegram_id and settings.admin_telegram_id != 0:
