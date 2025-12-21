@@ -471,7 +471,8 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
 
 ⚙️ Offset: {notification['offset_ticks']} ticks
 
-Order will be moved to maintain the offset."""
+Order will be moved to maintain the offset.
+You will notify about it."""
         
         await bot.send_message(chat_id=telegram_id, text=message)
         logger.info(f"Sent price change notification to user {telegram_id} for order {notification['order_id']}")
@@ -540,7 +541,8 @@ async def async_sync_all_orders(bot):
         
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления
-            orders_to_cancel, orders_to_place, price_change_notifications = process_user_orders(telegram_id)
+            # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
+            orders_to_cancel, orders_to_place, price_change_notifications = await asyncio.to_thread(process_user_orders, telegram_id)
             
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:
@@ -564,7 +566,8 @@ async def async_sync_all_orders(bot):
             # Отменяем старые ордера
             cancelled_count = 0
             if orders_to_cancel:
-                cancel_results = cancel_orders_batch(client, orders_to_cancel)
+                # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
+                cancel_results = await asyncio.to_thread(cancel_orders_batch, client, orders_to_cancel)
                 
                 # Проверяем успешность отмены более тщательно
                 for i, result in enumerate(cancel_results):
@@ -597,7 +600,8 @@ async def async_sync_all_orders(bot):
             
             # Размещаем новые ордера только если все старые успешно отменены
             if orders_to_place and cancelled_count == len(orders_to_cancel):
-                place_results = place_orders_batch(client, orders_to_place)
+                # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
+                place_results = await asyncio.to_thread(place_orders_batch, client, orders_to_place)
                 # Подсчитываем успешно размещенные ордера (результаты - это словари с полем 'success')
                 placed_count = len([r for r in place_results if isinstance(r, dict) and r.get('success', False)])
                 total_placed += placed_count
@@ -723,6 +727,7 @@ def main():
             
             # Размещаем новые ордера только если все старые успешно отменены
             if orders_to_place and cancelled_count == len(orders_to_cancel):
+                # Синхронный вызов (эта функция используется только для отдельного запуска скрипта)
                 place_results = place_orders_batch(client, orders_to_place)
                 # Подсчитываем успешно размещенные ордера (результаты - это словари с полем 'success')
                 total_placed += len([r for r in place_results if isinstance(r, dict) and r.get('success', False)])

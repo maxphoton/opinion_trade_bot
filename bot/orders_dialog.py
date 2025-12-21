@@ -19,7 +19,6 @@ class OrdersSG(StatesGroup):
     orders_list = State()
     orders_search = State()
     orders_search_results = State()
-    cancel_order_input = State()
 
 
 # Обработчики для списка ордеров
@@ -152,8 +151,24 @@ async def on_orders_search(callback: CallbackQuery, button: Button, manager: Dia
 
 
 async def on_cancel_order(callback: CallbackQuery, button: Button, manager: DialogManager):
-    """Переход к отмене ордера."""
-    await manager.switch_to(OrdersSG.cancel_order_input)
+    """Активация/деактивация режима отмены ордера - отправляет инструкцию, список остается видимым."""
+    cancel_mode = manager.dialog_data.get("cancel_mode", False)
+    
+    if cancel_mode:
+        # Отключаем режим отмены
+        manager.dialog_data["cancel_mode"] = False
+        await callback.message.answer("✅ Cancel mode disabled. List remains visible.")
+    else:
+        # Включаем режим отмены
+        manager.dialog_data["cancel_mode"] = True
+        await callback.message.answer(
+            """❌ <b>Cancel Order Mode</b>
+
+Enter the order ID to cancel (you can copy it from the list above).
+
+To exit cancel mode, press the Cancel Order button again."""
+        )
+    
     await callback.answer()
 
 
@@ -165,6 +180,69 @@ Use the /orders command to manage your orders."""
     )
     await manager.done()
     await callback.answer()
+
+
+# Обработчик ввода order_id в режиме отмены
+async def cancel_order_input_handler(message: Message, message_input: MessageInput, manager: DialogManager):
+    """Обработчик ввода order_id для отмены ордера (работает в окне списка)."""
+    # Проверяем, активен ли режим отмены
+    if not manager.dialog_data.get("cancel_mode", False):
+        # Если режим отмены не активен, игнорируем сообщение
+        return
+    
+    order_id = message.text.strip()
+    
+    if not order_id:
+        await message.answer("❌ Please enter order ID.")
+        return
+    
+    # Получаем telegram_id напрямую из сообщения
+    telegram_id = message.from_user.id
+    
+    # Проверяем, что ордер существует и принадлежит пользователю
+    order = get_order_by_id(order_id)
+    if not order:
+        await message.answer(f"❌ Order <code>{order_id}</code> not found in database.")
+        manager.dialog_data["cancel_mode"] = False
+        return
+    
+    # Проверяем, что пользователь является владельцем ордера
+    if order.get("telegram_id") != telegram_id:
+        await message.answer(f"❌ You don't have permission to cancel this order. The order belongs to another user.")
+        logger.warning(f"User {telegram_id} attempted to cancel another user's order {order_id} (owner: {order.get('telegram_id')})")
+        manager.dialog_data["cancel_mode"] = False
+        return
+    
+    # Получаем данные пользователя для создания клиента
+    user = get_user(telegram_id)
+    if not user:
+        await message.answer("❌ User not found in database.")
+        manager.dialog_data["cancel_mode"] = False
+        return
+    
+    # Создаем клиент
+    client = create_client(user)
+    
+    try:
+        # Отменяем ордер
+        result = client.cancel_order(order_id=order_id)
+        
+        if result.errno == 0:
+            # Обновляем статус в БД
+            update_order_status(order_id, "cancelled")
+            await message.answer(f"✅ Order <code>{order_id}</code> successfully cancelled.")
+            logger.info(f"User {telegram_id} cancelled order {order_id}")
+        else:
+            await message.answer(f"❌ Failed to cancel order <code>{order_id}</code>. Error: {result.errno}")
+            logger.warning(f"Failed to cancel order {order_id} for user {telegram_id}: errno={result.errno}")
+    except Exception as e:
+        await message.answer(f"❌ Error cancelling order <code>{order_id}</code>: {str(e)}")
+        logger.error(f"Error cancelling order {order_id} for user {telegram_id}: {e}")
+    
+    # Отключаем режим отмены
+    manager.dialog_data["cancel_mode"] = False
+    # Обновляем окно списка
+    await manager.switch_to(OrdersSG.orders_list)
 
 
 # Окно списка ордеров
@@ -179,6 +257,7 @@ orders_list_window = Window(
         Button(Const("❌ Cancel Order"), id="cancel_order", on_click=on_cancel_order, when="has_active_orders"),
     ),
     Button(Const("🚪 Exit"), id="exit", on_click=on_exit),
+    MessageInput(cancel_order_input_handler),
     state=OrdersSG.orders_list,
     getter=get_orders_list_data
 )
@@ -353,81 +432,12 @@ orders_search_results_window = Window(
 )
 
 
-# Отмена ордера
-async def cancel_order_handler(message: Message, message_input: MessageInput, manager: DialogManager):
-    """Обработчик ввода order_id для отмены ордера."""
-    order_id = message.text.strip()
-    
-    if not order_id:
-        await message.answer("❌ Please enter order ID.")
-        return
-    
-    # Получаем telegram_id напрямую из сообщения
-    telegram_id = message.from_user.id
-    
-    # Проверяем, что ордер существует и принадлежит пользователю
-    order = get_order_by_id(order_id)
-    if not order:
-        await message.answer(f"❌ Order <code>{order_id}</code> not found in database.")
-        await manager.switch_to(OrdersSG.orders_list)
-        return
-    
-    # Проверяем, что пользователь является владельцем ордера
-    if order.get("telegram_id") != telegram_id:
-        await message.answer(f"❌ You don't have permission to cancel this order. The order belongs to another user.")
-        logger.warning(f"User {telegram_id} attempted to cancel another user's order {order_id} (owner: {order.get('telegram_id')})")
-        await manager.switch_to(OrdersSG.orders_list)
-        return
-    
-    # Получаем данные пользователя для создания клиента
-    user = get_user(telegram_id)
-    if not user:
-        await message.answer("❌ User not found in database.")
-        await manager.switch_to(OrdersSG.orders_list)
-        return
-    
-    # Создаем клиент
-    client = create_client(user)
-    
-    try:
-        # Отменяем ордер
-        result = client.cancel_order(order_id=order_id)
-        
-        if result.errno == 0:
-            # Обновляем статус в БД
-            update_order_status(order_id, "cancelled")
-            await message.answer(f"✅ Order <code>{order_id}</code> successfully cancelled.")
-            logger.info(f"User {telegram_id} cancelled order {order_id}")
-        else:
-            await message.answer(f"❌ Failed to cancel order <code>{order_id}</code>. Error: {result.errno}")
-            logger.warning(f"Failed to cancel order {order_id} for user {telegram_id}: errno={result.errno}")
-    except Exception as e:
-        await message.answer(f"❌ Error cancelling order <code>{order_id}</code>: {str(e)}")
-        logger.error(f"Error cancelling order {order_id} for user {telegram_id}: {e}")
-    
-    # Возвращаемся к списку ордеров
-    await manager.switch_to(OrdersSG.orders_list)
-
-
-async def cancel_order_back(callback: CallbackQuery, button: Button, manager: DialogManager):
-    """Возврат к списку ордеров из ввода order_id."""
-    await manager.switch_to(OrdersSG.orders_list)
-    await callback.answer()
-
-
-cancel_order_input_window = Window(
-    Const("Enter order ID to cancel:"),
-    MessageInput(cancel_order_handler),
-    Back(Const("◀️ Back")),
-    state=OrdersSG.cancel_order_input
-)
 
 
 # Создаем диалог
 orders_dialog = Dialog(
     orders_list_window,
     orders_search_window,
-    orders_search_results_window,
-    cancel_order_input_window
+    orders_search_results_window
 )
 
