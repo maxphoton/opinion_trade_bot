@@ -37,7 +37,7 @@ start_router = Router()
 @start_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     """Handler for /start command - start of registration process."""
-    user = get_user(message.from_user.id)
+    user = await get_user(message.from_user.id)
     
     if user:
         await message.answer(
@@ -103,7 +103,7 @@ async def process_api_key(message: Message, state: FSMContext):
     data = await state.get_data()
     
     # Save user to database
-    save_user(
+    await save_user(
         telegram_id=message.from_user.id,
         username=message.from_user.username,
         wallet_address=data['wallet_address'],

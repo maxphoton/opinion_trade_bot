@@ -3,6 +3,7 @@ Router for market order placement flow (/make_market command).
 Handles the complete order placement process from URL input to order confirmation.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Tuple
@@ -257,7 +258,11 @@ async def place_order(client: Client, order_params: dict) -> Tuple[bool, Optiona
             makerAmountInQuoteToken=order_params['amount']
         )
         
-        result = client.place_order(order_data, check_approval=True)
+        # Обертываем синхронный вызов API в asyncio.to_thread, чтобы не блокировать event loop
+        def _place_order_sync():
+            return client.place_order(order_data, check_approval=True)
+        
+        result = await asyncio.to_thread(_place_order_sync)
         
         if result.errno == 0:
             order_id = 'N/A'
@@ -290,7 +295,7 @@ market_router = Router()
 @market_router.message(Command("make_market"))
 async def cmd_make_market(message: Message, state: FSMContext):
     """Handler for /make_market command - start of order placement process."""
-    user = get_user(message.from_user.id)
+    user = await get_user(message.from_user.id)
     
     if not user:
         await message.answer(
@@ -329,7 +334,7 @@ async def process_market_url(message: Message, state: FSMContext):
     is_categorical = market_type == "multi"
     
     # Get user data and create client
-    user = get_user(message.from_user.id)
+    user = await get_user(message.from_user.id)
     client = create_client(user)
     
     # Get market information
@@ -1019,7 +1024,8 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
             offset_cents = offset_ticks * tick_size * 100
             amount = data['amount']
             
-            save_order(
+            # Сохраняем ордер в базу данных
+            await save_order(
                 telegram_id=telegram_id,
                 order_id=order_id,
                 market_id=market_id,

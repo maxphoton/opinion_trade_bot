@@ -71,7 +71,7 @@ async def cmd_get_db(message: Message):
     
     try:
         # Экспортируем данные в CSV
-        csv_content = export_users_to_csv()
+        csv_content = await export_users_to_csv()
         
         # Создаем файл для отправки
         csv_file = BufferedInputFile(
@@ -93,7 +93,7 @@ async def cmd_get_db(message: Message):
 async def cmd_orders(message: Message, dialog_manager: DialogManager):
     """Обработчик команды /orders - просмотр ордеров пользователя."""
     # Проверяем, зарегистрирован ли пользователь
-    user = get_user(message.from_user.id)
+    user = await get_user(message.from_user.id)
     if not user:
         await message.answer(
             """❌ You are not registered. Use /start to register first."""
@@ -152,7 +152,7 @@ async def main():
     setup_proxy()
     
     # Инициализируем базу данных
-    init_database()
+    await init_database()
     
     # Регистрируем middleware для антиспама (глобально)
     dp.message.middleware(AntiSpamMiddleware(bot=bot))

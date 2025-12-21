@@ -31,11 +31,9 @@ Features:
 """
 import asyncio
 import logging
-import sqlite3
-from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
-from database import get_user, get_user_orders, DB_PATH
+from database import get_user, get_user_orders, get_all_users, update_order_in_db
 from client_factory import create_client, setup_proxy
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
@@ -153,7 +151,7 @@ def calculate_new_target_price(
     return target
 
 
-def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], List[Dict]]:
+async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], List[Dict]]:
     """
     Обрабатывает ордера пользователя и возвращает списки для отмены и размещения.
     
@@ -168,7 +166,7 @@ def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], List[D
     price_change_notifications = []  # Список уведомлений о смещении цены
     
     # Получаем данные пользователя
-    user = get_user(telegram_id)
+    user = await get_user(telegram_id)
     if not user:
         logger.warning(f"Пользователь {telegram_id} не найден в БД")
         return orders_to_cancel, orders_to_place, price_change_notifications
@@ -181,7 +179,7 @@ def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], List[D
         return orders_to_cancel, orders_to_place, price_change_notifications
     
     # Получаем активные ордера из БД
-    db_orders = get_user_orders(telegram_id, status="active")
+    db_orders = await get_user_orders(telegram_id, status="active")
     
     if not db_orders:
         logger.info(f"У пользователя {telegram_id} нет активных ордеров")
@@ -408,39 +406,6 @@ def place_orders_batch(client, orders_params: List[Dict]) -> List:
         return []
 
 
-def update_order_in_db(old_order_id: str, new_order_id: str, new_current_price: float, new_target_price: float):
-    """
-    Обновляет order_id и цену ордера в БД.
-    
-    Args:
-        old_order_id: Старый ID ордера
-        new_order_id: Новый ID ордера
-        new_current_price: Новая текущая цена
-        new_target_price: Новая целевая цена
-    """
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE orders 
-            SET order_id = ?, current_price = ?, target_price = ?
-            WHERE order_id = ?
-        """, (new_order_id, new_current_price, new_target_price, old_order_id))
-        conn.commit()
-        conn.close()
-        logger.info(f"Обновлен ордер {old_order_id} -> {new_order_id} в БД")
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении ордера {old_order_id} в БД: {e}")
-
-
-def get_all_users():
-    """Получает список всех пользователей из БД."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id FROM users")
-    rows = cursor.fetchall()
-    conn.close()
-    return [row[0] for row in rows]
 
 
 async def send_price_change_notification(bot, telegram_id: int, notification: Dict):
@@ -521,7 +486,7 @@ async def async_sync_all_orders(bot):
     logger.info("="*80)
     
     # Получаем всех пользователей
-    users = get_all_users()
+    users = await get_all_users()
     logger.info(f"Найдено пользователей: {len(users)}")
     
     if not users:
@@ -541,8 +506,7 @@ async def async_sync_all_orders(bot):
         
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления
-            # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
-            orders_to_cancel, orders_to_place, price_change_notifications = await asyncio.to_thread(process_user_orders, telegram_id)
+            orders_to_cancel, orders_to_place, price_change_notifications = await process_user_orders(telegram_id)
             
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:
@@ -560,7 +524,8 @@ async def async_sync_all_orders(bot):
                 continue
             
             # Получаем клиент для пользователя
-            user = get_user(telegram_id)
+            user = await get_user(telegram_id)
+            # create_client остается синхронным, но это быстрая операция
             client = create_client(user)
             
             # Отменяем старые ордера
@@ -621,7 +586,8 @@ async def async_sync_all_orders(bot):
                             new_order_id = result_data.result.order_data.order_id
                             
                             if new_order_id and old_order_id:
-                                update_order_in_db(
+                                # Обновляем ордер в БД
+                                await update_order_in_db(
                                     old_order_id,
                                     new_order_id,
                                     order_params["current_price_at_creation"],
@@ -747,6 +713,7 @@ def main():
                             new_order_id = result_data.result.order_data.order_id
                             
                             if new_order_id and old_order_id:
+                                # Синхронный вызов (эта функция используется только для отдельного запуска скрипта)
                                 update_order_in_db(
                                     old_order_id,
                                     new_order_id,

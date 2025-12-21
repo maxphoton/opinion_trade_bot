@@ -1,5 +1,5 @@
 """
-Модуль для работы с базой данных SQLite.
+Модуль для работы с базой данных SQLite (асинхронная версия с aiosqlite).
 
 Содержит функции для:
 - Инициализации базы данных
@@ -11,7 +11,7 @@
 import csv
 import io
 import logging
-import sqlite3
+import aiosqlite
 from pathlib import Path
 from typing import Optional
 
@@ -24,64 +24,61 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path(__file__).parent / "users.db"
 
 
-def init_database():
+async def init_database():
     """Инициализирует базу данных SQLite."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Таблица пользователей
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            telegram_id INTEGER PRIMARY KEY,
-            username TEXT,
-            wallet_address TEXT NOT NULL,
-            wallet_nonce BLOB NOT NULL,
-            private_key_cipher BLOB NOT NULL,
-            private_key_nonce BLOB NOT NULL,
-            api_key_cipher BLOB NOT NULL,
-            api_key_nonce BLOB NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Таблица ордеров
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER NOT NULL,
-            order_id TEXT NOT NULL,
-            market_id INTEGER NOT NULL,
-            market_title TEXT,
-            token_id TEXT NOT NULL,
-            token_name TEXT NOT NULL,
-            side TEXT NOT NULL,
-            current_price REAL NOT NULL,
-            target_price REAL NOT NULL,
-            offset_ticks INTEGER NOT NULL,
-            offset_cents REAL NOT NULL,
-            amount REAL NOT NULL,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
-        )
-    """)
-    
-    # Создаем индекс для быстрого поиска ордеров по telegram_id
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_orders_telegram_id ON orders(telegram_id)
-    """)
-    
-    # Создаем индекс для поиска по order_id
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)
-    """)
-    
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Таблица пользователей
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                telegram_id INTEGER PRIMARY KEY,
+                username TEXT,
+                wallet_address TEXT NOT NULL,
+                wallet_nonce BLOB NOT NULL,
+                private_key_cipher BLOB NOT NULL,
+                private_key_nonce BLOB NOT NULL,
+                api_key_cipher BLOB NOT NULL,
+                api_key_nonce BLOB NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Таблица ордеров
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                order_id TEXT NOT NULL,
+                market_id INTEGER NOT NULL,
+                market_title TEXT,
+                token_id TEXT NOT NULL,
+                token_name TEXT NOT NULL,
+                side TEXT NOT NULL,
+                current_price REAL NOT NULL,
+                target_price REAL NOT NULL,
+                offset_ticks INTEGER NOT NULL,
+                offset_cents REAL NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+            )
+        """)
+        
+        # Создаем индекс для быстрого поиска ордеров по telegram_id
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_orders_telegram_id ON orders(telegram_id)
+        """)
+        
+        # Создаем индекс для поиска по order_id
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)
+        """)
+        
+        await conn.commit()
     logger.info("База данных инициализирована")
 
 
-def get_user(telegram_id: int) -> Optional[dict]:
+async def get_user(telegram_id: int) -> Optional[dict]:
     """
     Получает данные пользователя из базы данных.
     
@@ -91,16 +88,12 @@ def get_user(telegram_id: int) -> Optional[dict]:
     Returns:
         dict: Словарь с данными пользователя или None, если пользователь не найден
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT * FROM users WHERE telegram_id = ?",
-        (telegram_id,)
-    )
-    
-    row = cursor.fetchone()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT * FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
     
     if not row:
         return None
@@ -123,7 +116,7 @@ def get_user(telegram_id: int) -> Optional[dict]:
         return None
 
 
-def save_user(telegram_id: int, username: Optional[str], wallet_address: str, 
+async def save_user(telegram_id: int, username: Optional[str], wallet_address: str, 
               private_key: str, api_key: str):
     """
     Сохраняет данные пользователя в базу данных с шифрованием.
@@ -135,31 +128,28 @@ def save_user(telegram_id: int, username: Optional[str], wallet_address: str,
         private_key: Приватный ключ
         api_key: API ключ
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Шифруем данные
-    wallet_cipher, wallet_nonce = encrypt(wallet_address)
-    private_key_cipher, private_key_nonce = encrypt(private_key)
-    api_key_cipher, api_key_nonce = encrypt(api_key)
-    
-    # Сохраняем или обновляем пользователя
-    cursor.execute("""
-        INSERT OR REPLACE INTO users 
-        (telegram_id, username, wallet_address, wallet_nonce, 
-         private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        telegram_id, username, wallet_cipher, wallet_nonce,
-        private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce
-    ))
-    
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Шифруем данные
+        wallet_cipher, wallet_nonce = encrypt(wallet_address)
+        private_key_cipher, private_key_nonce = encrypt(private_key)
+        api_key_cipher, api_key_nonce = encrypt(api_key)
+        
+        # Сохраняем или обновляем пользователя
+        await conn.execute("""
+            INSERT OR REPLACE INTO users 
+            (telegram_id, username, wallet_address, wallet_nonce, 
+             private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            telegram_id, username, wallet_cipher, wallet_nonce,
+            private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce
+        ))
+        
+        await conn.commit()
     logger.info(f"Пользователь {telegram_id} сохранен в базу данных")
 
 
-def save_order(telegram_id: int, order_id: str, market_id: int, market_title: Optional[str],
+async def save_order(telegram_id: int, order_id: str, market_id: int, market_title: Optional[str],
                token_id: str, token_name: str, side: str, current_price: float,
                target_price: float, offset_ticks: int, offset_cents: float, amount: float,
                status: str = 'active'):
@@ -181,25 +171,22 @@ def save_order(telegram_id: int, order_id: str, market_id: int, market_title: Op
         amount: Сумма ордера в USDT
         status: Статус ордера (active/cancelled/filled)
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        INSERT INTO orders 
-        (telegram_id, order_id, market_id, market_title, token_id, token_name, 
-         side, current_price, target_price, offset_ticks, offset_cents, amount, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        telegram_id, order_id, market_id, market_title, token_id, token_name,
-        side, current_price, target_price, offset_ticks, offset_cents, amount, status
-    ))
-    
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            INSERT INTO orders 
+            (telegram_id, order_id, market_id, market_title, token_id, token_name, 
+             side, current_price, target_price, offset_ticks, offset_cents, amount, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            telegram_id, order_id, market_id, market_title, token_id, token_name,
+            side, current_price, target_price, offset_ticks, offset_cents, amount, status
+        ))
+        
+        await conn.commit()
     logger.info(f"Ордер {order_id} сохранен в базу данных для пользователя {telegram_id}")
 
 
-def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
+async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
     """
     Получает список ордеров пользователя из базы данных.
     
@@ -210,24 +197,21 @@ def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
     Returns:
         list: Список словарей с данными ордеров
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    if status:
-        cursor.execute("""
-            SELECT * FROM orders 
-            WHERE telegram_id = ? AND status = ?
-            ORDER BY created_at DESC
-        """, (telegram_id, status))
-    else:
-        cursor.execute("""
-            SELECT * FROM orders 
-            WHERE telegram_id = ?
-            ORDER BY created_at DESC
-        """, (telegram_id,))
-    
-    rows = cursor.fetchall()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        if status:
+            async with conn.execute("""
+                SELECT * FROM orders 
+                WHERE telegram_id = ? AND status = ?
+                ORDER BY created_at DESC
+            """, (telegram_id, status)) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            async with conn.execute("""
+                SELECT * FROM orders 
+                WHERE telegram_id = ?
+                ORDER BY created_at DESC
+            """, (telegram_id,)) as cursor:
+                rows = await cursor.fetchall()
     
     # Получаем названия колонок
     columns = ['id', 'telegram_id', 'order_id', 'market_id', 'market_title', 
@@ -242,7 +226,7 @@ def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
     return orders
 
 
-def get_order_by_id(order_id: str) -> Optional[dict]:
+async def get_order_by_id(order_id: str) -> Optional[dict]:
     """
     Получает ордер по его ID из базы данных.
     
@@ -252,16 +236,12 @@ def get_order_by_id(order_id: str) -> Optional[dict]:
     Returns:
         dict: Словарь с данными ордера или None, если ордер не найден
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT * FROM orders 
-        WHERE order_id = ?
-    """, (order_id,))
-    
-    row = cursor.fetchone()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("""
+            SELECT * FROM orders 
+            WHERE order_id = ?
+        """, (order_id,)) as cursor:
+            row = await cursor.fetchone()
     
     if not row:
         return None
@@ -275,7 +255,7 @@ def get_order_by_id(order_id: str) -> Optional[dict]:
     return order_dict
 
 
-def update_order_status(order_id: str, status: str):
+async def update_order_status(order_id: str, status: str):
     """
     Обновляет статус ордера в базе данных.
     
@@ -283,38 +263,58 @@ def update_order_status(order_id: str, status: str):
         order_id: ID ордера на бирже
         status: Новый статус (active/cancelled/filled)
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        UPDATE orders 
-        SET status = ?
-        WHERE order_id = ?
-    """, (status, order_id))
-    
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            UPDATE orders 
+            SET status = ?
+            WHERE order_id = ?
+        """, (status, order_id))
+        
+        await conn.commit()
     logger.info(f"Статус ордера {order_id} обновлен на {status}")
 
 
-def export_users_to_csv() -> str:
+async def update_order_in_db(old_order_id: str, new_order_id: str, new_current_price: float, new_target_price: float):
+    """
+    Обновляет order_id и цену ордера в БД.
+    
+    Args:
+        old_order_id: Старый ID ордера
+        new_order_id: Новый ID ордера
+        new_current_price: Новая текущая цена
+        new_target_price: Новая целевая цена
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            UPDATE orders 
+            SET order_id = ?, current_price = ?, target_price = ?
+            WHERE order_id = ?
+        """, (new_order_id, new_current_price, new_target_price, old_order_id))
+        
+        await conn.commit()
+    logger.info(f"Обновлен ордер {old_order_id} -> {new_order_id} в БД")
+
+
+async def get_all_users():
+    """Получает список всех пользователей из БД."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT telegram_id FROM users") as cursor:
+            rows = await cursor.fetchall()
+    return [row[0] for row in rows]
+
+
+async def export_users_to_csv() -> str:
     """
     Экспортирует таблицу users в CSV формат.
     
     Returns:
         str: CSV содержимое в виде строки
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Получаем все данные из таблицы users
-    cursor.execute("SELECT * FROM users")
-    rows = cursor.fetchall()
-    
-    # Получаем названия колонок
-    column_names = [description[0] for description in cursor.description]
-    
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT * FROM users") as cursor:
+            rows = await cursor.fetchall()
+            # Получаем названия колонок
+            column_names = [description[0] for description in cursor.description]
     
     # Создаем CSV в памяти
     output = io.StringIO()
@@ -336,4 +336,3 @@ def export_users_to_csv() -> str:
         writer.writerow(csv_row)
     
     return output.getvalue()
-

@@ -46,7 +46,7 @@ async def get_orders_list_data(dialog_manager: DialogManager, **kwargs):
         }
     
     # Получаем все ордера пользователя
-    all_orders = get_user_orders(telegram_id)
+    all_orders = await get_user_orders(telegram_id)
     total = len(all_orders)
     
     # Проверяем, есть ли активные ордера (не отмененные и не исполненные)
@@ -200,7 +200,7 @@ async def cancel_order_input_handler(message: Message, message_input: MessageInp
     telegram_id = message.from_user.id
     
     # Проверяем, что ордер существует и принадлежит пользователю
-    order = get_order_by_id(order_id)
+    order = await get_order_by_id(order_id)
     if not order:
         await message.answer(f"❌ Order <code>{order_id}</code> not found in database.")
         manager.dialog_data["cancel_mode"] = False
@@ -214,7 +214,7 @@ async def cancel_order_input_handler(message: Message, message_input: MessageInp
         return
     
     # Получаем данные пользователя для создания клиента
-    user = get_user(telegram_id)
+    user = await get_user(telegram_id)
     if not user:
         await message.answer("❌ User not found in database.")
         manager.dialog_data["cancel_mode"] = False
@@ -229,7 +229,7 @@ async def cancel_order_input_handler(message: Message, message_input: MessageInp
         
         if result.errno == 0:
             # Обновляем статус в БД
-            update_order_status(order_id, "cancelled")
+            await update_order_status(order_id, "cancelled")
             await message.answer(f"✅ Order <code>{order_id}</code> successfully cancelled.")
             logger.info(f"User {telegram_id} cancelled order {order_id}")
         else:
@@ -276,7 +276,7 @@ async def orders_search_handler(message: Message, message_input: MessageInput, m
     telegram_id = message.from_user.id
     
     # Получаем все ордера пользователя
-    all_orders = get_user_orders(telegram_id)
+    all_orders = await get_user_orders(telegram_id)
     
     # Выполняем поиск
     search_results = []
