@@ -8,22 +8,20 @@
 """
 
 import asyncio
-import base64
-import csv
-import io
 import logging
-import os
-import sqlite3
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
 from aiogram import Bot, Dispatcher, Router, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, FSInputFile
+from aiogram_dialog import DialogManager, StartMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 from opinion_clob_sdk import Client
@@ -36,6 +34,18 @@ from opinion_clob_sdk.chain.exception import BalanceNotEnough
 # Импортируем локальные модули
 from aes import encrypt, decrypt
 from config import settings
+from database import (
+    init_database,
+    get_user,
+    save_user,
+    save_order,
+    get_user_orders,
+    export_users_to_csv
+)
+from spam_protection import AntiSpamMiddleware
+from aiogram_dialog import setup_dialogs
+from orders_dialog import orders_dialog, OrdersSG
+from client_factory import create_client, parse_proxy_config, setup_proxy
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -48,13 +58,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
-bot = Bot(token=settings.bot_token)
+bot = Bot(
+    token=settings.bot_token,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
-
-# Путь к базе данных SQLite (в той же папке, что и скрипт)
-DB_PATH = Path(__file__).parent / "users.db"
-
 
 # ============================================================================
 # Состояния FSM для регистрации
@@ -79,280 +88,9 @@ class MarketOrderStates(StatesGroup):
 
 
 # ============================================================================
-# Функции для работы с базой данных
-# ============================================================================
-
-def init_database():
-    """Инициализирует базу данных SQLite."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            telegram_id INTEGER PRIMARY KEY,
-            username TEXT,
-            wallet_address TEXT NOT NULL,
-            wallet_nonce BLOB NOT NULL,
-            private_key_cipher BLOB NOT NULL,
-            private_key_nonce BLOB NOT NULL,
-            api_key_cipher BLOB NOT NULL,
-            api_key_nonce BLOB NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-    logger.info("База данных инициализирована")
-
-
-def get_user(telegram_id: int) -> Optional[dict]:
-    """Получает данные пользователя из базы данных."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT * FROM users WHERE telegram_id = ?",
-        (telegram_id,)
-    )
-    
-    row = cursor.fetchone()
-    conn.close()
-    
-    if not row:
-        return None
-    
-    # Расшифровываем данные
-    try:
-        wallet_address = decrypt(row[2], row[3])
-        private_key = decrypt(row[4], row[5])
-        api_key = decrypt(row[6], row[7])
-        
-        return {
-            'telegram_id': row[0],
-            'username': row[1],
-            'wallet_address': wallet_address,
-            'private_key': private_key,
-            'api_key': api_key,
-        }
-    except Exception as e:
-        logger.error(f"Ошибка расшифровки данных пользователя {telegram_id}: {e}")
-        return None
-
-
-def save_user(telegram_id: int, username: Optional[str], wallet_address: str, 
-              private_key: str, api_key: str):
-    """Сохраняет данные пользователя в базу данных с шифрованием."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Шифруем данные
-    wallet_cipher, wallet_nonce = encrypt(wallet_address)
-    private_key_cipher, private_key_nonce = encrypt(private_key)
-    api_key_cipher, api_key_nonce = encrypt(api_key)
-    
-    # Сохраняем или обновляем пользователя
-    cursor.execute("""
-        INSERT OR REPLACE INTO users 
-        (telegram_id, username, wallet_address, wallet_nonce, 
-         private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        telegram_id, username, wallet_cipher, wallet_nonce,
-        private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce
-    ))
-    
-    conn.commit()
-    conn.close()
-    logger.info(f"Пользователь {telegram_id} сохранен в базу данных")
-
-
-def export_users_to_csv() -> str:
-    """
-    Экспортирует таблицу users в CSV формат.
-    
-    Returns:
-        str: CSV содержимое в виде строки
-    """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Получаем все данные из таблицы users
-    cursor.execute("SELECT * FROM users")
-    rows = cursor.fetchall()
-    
-    # Получаем названия колонок
-    column_names = [description[0] for description in cursor.description]
-    
-    conn.close()
-    
-    # Создаем CSV в памяти
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Записываем заголовки
-    writer.writerow(column_names)
-    
-    # Записываем данные
-    # Примечание: BLOB данные (шифрованные ключи) будут представлены как hex строки
-    for row in rows:
-        csv_row = []
-        for value in row:
-            if isinstance(value, bytes):
-                # Конвертируем BLOB в hex строку для читаемости
-                csv_row.append(value.hex())
-            else:
-                csv_row.append(value)
-        writer.writerow(csv_row)
-    
-    return output.getvalue()
-
-
-# ============================================================================
 # Функции для работы с Opinion SDK (адаптированы из simple_flow.py)
 # ============================================================================
 
-def parse_proxy_config() -> Optional[dict]:
-    """
-    Парсит строку прокси формата host:port:username:password и возвращает конфигурацию прокси.
-    
-    Формат прокси: host:port:username:password
-    Пример: 91.216.186.156:8000:Ym81H9:ysZcvQ
-    
-    Returns:
-        Словарь с ключами:
-        - proxy_url: URL прокси без аутентификации (http://host:port)
-        - proxy_headers: Заголовки для аутентификации прокси
-        Или None, если прокси не настроен
-    """
-    # Читаем прокси из настроек или переменных окружения
-    proxy_str = settings.proxy or os.getenv('PROXY')
-    
-    if not proxy_str:
-        return None
-    
-    try:
-        # Парсим строку формата host:port:username:password
-        parts = proxy_str.split(':')
-        if len(parts) != 4:
-            raise ValueError(f"Неверный формат прокси. Ожидается host:port:username:password, получено: {proxy_str}")
-        
-        host, port, username, password = parts
-        
-        # Формируем URL прокси БЕЗ аутентификации (urllib3 требует отдельные заголовки)
-        proxy_url = f"http://{host}:{port}"
-        
-        # Создаем заголовок для базовой аутентификации прокси
-        # urllib3.ProxyManager использует заголовок Proxy-Authorization для аутентификации
-        credentials = f"{username}:{password}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        proxy_headers = {
-            'Proxy-Authorization': f'Basic {encoded_credentials}'
-        }
-        
-        # Логируем без пароля для безопасности
-        logger.info(f"✅ Настроен прокси: {username}@{host}:{port}")
-        
-        return {
-            'proxy_url': proxy_url,
-            'proxy_headers': proxy_headers
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка парсинга прокси: {e}")
-        return None
-
-
-def get_proxy_url() -> Optional[str]:
-    """
-    Парсит строку прокси и возвращает полный URL с аутентификацией.
-    Используется для переменных окружения (httpx, requests).
-    
-    Returns:
-        URL прокси в формате http://username:password@host:port или None
-    """
-    proxy_config = parse_proxy_config()
-    if not proxy_config:
-        return None
-    
-    # Для переменных окружения формируем полный URL с аутентификацией
-    proxy_str = settings.proxy or os.getenv('PROXY')
-    if proxy_str:
-        parts = proxy_str.split(':')
-        if len(parts) == 4:
-            host, port, username, password = parts
-            return f"http://{username}:{password}@{host}:{port}"
-    
-    return None
-
-
-def setup_proxy():
-    """
-    Централизованная настройка прокси для всех API запросов.
-    Устанавливает переменные окружения HTTP_PROXY и HTTPS_PROXY для совместимости
-    с другими библиотеками (httpx, requests), хотя SDK использует urllib3 напрямую.
-    """
-    proxy_url = get_proxy_url()
-    
-    if proxy_url:
-        # Устанавливаем переменные окружения для использования другими библиотеками
-        os.environ['HTTP_PROXY'] = proxy_url
-        os.environ['HTTPS_PROXY'] = proxy_url
-        os.environ['http_proxy'] = proxy_url  # Некоторые библиотеки используют нижний регистр
-        os.environ['https_proxy'] = proxy_url
-    else:
-        logger.info("ℹ️ Прокси не настроен, запросы идут напрямую")
-
-
-def create_client(user_data: dict) -> Client:
-    """
-    Создает клиент Opinion SDK из данных пользователя.
-    Настраивает прокси в конфигурации SDK для всех API запросов.
-    
-    Важно: SDK использует urllib3, который НЕ использует переменные окружения
-    HTTP_PROXY/HTTPS_PROXY автоматически. Прокси нужно устанавливать напрямую
-    в configuration.proxy перед созданием ApiClient.
-    """
-    # Создаем клиент
-    client = Client(
-        host='https://proxy.opinion.trade:8443',
-        apikey=user_data['api_key'],
-        chain_id=56,  # BNB Chain mainnet
-        rpc_url=settings.rpc_url,
-        private_key=user_data['private_key'],
-        multi_sig_addr=user_data['wallet_address'],
-        conditional_tokens_addr=settings.conditional_token_addr,
-        multisend_addr=settings.multisend_addr,
-        market_cache_ttl=0,        # Cache markets for 5 minutes
-        quote_tokens_cache_ttl=3600, # Cache quote tokens for 1 hour
-        enable_trading_check_interval=3600 # Check trading every hour
-    )
-    
-    # Устанавливаем прокси в конфигурацию SDK
-    # SDK использует urllib3, который требует явной установки прокси в configuration
-    # Для аутентификации прокси нужно использовать proxy_headers, а не встраивать в URL
-    proxy_config = parse_proxy_config()
-    if proxy_config:
-        # Устанавливаем прокси URL БЕЗ аутентификации
-        client.conf.proxy = proxy_config['proxy_url']
-        # Устанавливаем заголовки для аутентификации прокси
-        client.conf.proxy_headers = proxy_config['proxy_headers']
-        
-        # Пересоздаем api_client с новой конфигурацией (с прокси)
-        # Это необходимо, так как RESTClientObject создается при инициализации ApiClient
-        from opinion_api.api_client import ApiClient
-        from opinion_api.api.prediction_market_api import PredictionMarketApi
-        from opinion_api.api.user_api import UserApi
-        
-        client.api_client = ApiClient(client.conf)
-        client.market_api = PredictionMarketApi(client.api_client)
-        client.user_api = UserApi(client.api_client)
-        
-        # Логируем успешную установку прокси в SDK (без пароля)
-        proxy_info = proxy_config['proxy_url'].replace('http://', '')
-        logger.info(f"✅ Прокси установлен в конфигурацию SDK: {proxy_info}")
-    
-    return client
 
 
 def parse_market_url(url: str) -> Tuple[Optional[int], Optional[str]]:
@@ -624,8 +362,7 @@ Use the /make_market command to place an order."""
 ⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
 The data is never used in its raw form and is not shared with third parties.
 
-Please enter your Balance spot address found <a href="https://app.opinion.trade/profile">in your profile</a>:""",
-        parse_mode="HTML"
+Please enter your Balance spot address found <a href="https://app.opinion.trade/profile">in your profile</a>:"""
     )
     await state.set_state(RegistrationStates.waiting_wallet)
 
@@ -654,8 +391,7 @@ async def process_private_key(message: Message, state: FSMContext):
         return
     
     await state.update_data(private_key=private_key)
-    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""",
-        parse_mode="HTML")
+    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""")
     await state.set_state(RegistrationStates.waiting_api_key)
 
 
@@ -685,9 +421,7 @@ async def process_api_key(message: Message, state: FSMContext):
 
 Your data has been encrypted.
 
-Use the /make_market command to start a new farm.""",
-        parse_mode="HTML"
-    )
+Use the /make_market command to start a new farm.""")
 
 
 @router.message(Command("make_market"))
@@ -709,7 +443,6 @@ async def cmd_make_market(message: Message, state: FSMContext):
         """📊 Place a Limit Order
 
 Please enter the Opinion.trade market link:""",
-        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await state.set_state(MarketOrderStates.waiting_url)
@@ -740,6 +473,25 @@ async def cmd_get_db(message: Message):
     except Exception as e:
         logger.error(f"Ошибка экспорта базы данных: {e}")
         await message.answer(f"""❌ Error exporting database: {e}""")
+
+
+@router.message(Command("orders"))
+async def cmd_orders(message: Message, dialog_manager: DialogManager):
+    """Обработчик команды /orders - просмотр ордеров пользователя."""
+    # Проверяем, зарегистрирован ли пользователь
+    user = get_user(message.from_user.id)
+    if not user:
+        await message.answer(
+            """❌ You are not registered. Use /start to register first."""
+        )
+        return
+    
+    # Сохраняем telegram_id в start_data для использования в диалоге
+    telegram_id = message.from_user.id
+    
+    # Запускаем диалог с передачей telegram_id
+    # Пагинация будет сброшена автоматически при запуске диалога
+    await dialog_manager.start(OrdersSG.orders_list, data={"telegram_id": telegram_id}, mode=StartMode.RESET_STACK)
 
 
 @router.message(MarketOrderStates.waiting_url)
@@ -808,7 +560,6 @@ async def process_market_url(message: Message, state: FSMContext):
 Found submarkets: {len(submarket_list)}
 
 Select a submarket:""",
-            parse_mode="HTML",
             reply_markup=builder.as_markup()
         )
         await state.set_state(MarketOrderStates.waiting_submarket)
@@ -848,8 +599,7 @@ Order books have no orders (bids and asks are empty).
 Possible reasons:
 • Market has expired or closed
 • Market has not started trading yet
-• No liquidity on the market""",
-            parse_mode="HTML"
+• No liquidity on the market"""
         )
         await state.clear()
         return
@@ -916,7 +666,6 @@ Possible reasons:
 {market_info_text}
 
 💰 Enter the amount for farming (in USDT, e.g. 10):""",
-        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await state.set_state(MarketOrderStates.waiting_amount)
@@ -1182,7 +931,6 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
 {bids_text}
 {asks_text}
 Set the price offset (in ¢) relative to the best bid ({best_bid:.1f}¢). For example 0.1:""",
-        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await callback.answer()
@@ -1396,7 +1144,7 @@ Amount: {amount} USDT"""
     builder.button(text="✖️ Cancel", callback_data="cancel")
     builder.adjust(2)
     
-    await callback.message.edit_text(confirm_text, parse_mode="HTML", reply_markup=builder.as_markup())
+    await callback.message.edit_text(confirm_text, reply_markup=builder.as_markup())
     await callback.answer()
     await state.set_state(MarketOrderStates.waiting_confirm)
 
@@ -1448,6 +1196,41 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
     success, order_id = await place_order(client, order_params)
     
     if success:
+        # Сохраняем ордер в базу данных
+        try:
+            telegram_id = callback.from_user.id
+            market_id = data['market_id']
+            market = data.get('market')
+            market_title = getattr(market, 'market_title', None) if market else None
+            token_id = data['token_id']
+            token_name = data['token_name']
+            side = data['direction']  # BUY или SELL
+            current_price = data['current_price']
+            target_price = data['target_price']
+            offset_ticks = data['offset_ticks']
+            tick_size = data.get('tick_size', 0.001)
+            offset_cents = offset_ticks * tick_size * 100
+            amount = data['amount']
+            
+            save_order(
+                telegram_id=telegram_id,
+                order_id=order_id,
+                market_id=market_id,
+                market_title=market_title,
+                token_id=token_id,
+                token_name=token_name,
+                side=side,
+                current_price=current_price,
+                target_price=target_price,
+                offset_ticks=offset_ticks,
+                offset_cents=offset_cents,
+                amount=amount,
+                status='active'
+            )
+            logger.info(f"Ордер {order_id} успешно сохранен в БД для пользователя {telegram_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении ордера в БД: {e}")
+        
         await callback.message.edit_text(
             f"""✅ <b>Order successfully placed!</b>
 
@@ -1456,15 +1239,13 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Price: {data['target_price']:.6f}
 • Amount: {data['amount']} USDT
 • Offset: {data['offset_ticks']} ticks
-• Order ID: {order_id}""",
-            parse_mode="HTML"
+• Order ID: {order_id}"""
         )
     else:
         await callback.message.edit_text(
             f"""❌ <b>Failed to place order</b>
 
-Please check your balance and order parameters.""",
-            parse_mode="HTML"
+Please check your balance and order parameters."""
         )
     
     await state.clear()
@@ -1495,6 +1276,16 @@ async def main():
     
     # Инициализируем базу данных
     init_database()
+    
+    # Регистрируем middleware для антиспама (глобально)
+    dp.message.middleware(AntiSpamMiddleware(bot=bot))
+    dp.callback_query.middleware(AntiSpamMiddleware(bot=bot))
+    
+    # Регистрируем диалоги
+    dp.include_router(orders_dialog)
+    
+    # Настраиваем диалоги
+    setup_dialogs(dp)
     
     # Регистрируем роутер
     dp.include_router(router)
