@@ -50,6 +50,12 @@ async def get_orders_list_data(dialog_manager: DialogManager, **kwargs):
     all_orders = get_user_orders(telegram_id)
     total = len(all_orders)
     
+    # Проверяем, есть ли активные ордера (не отмененные и не исполненные)
+    has_active_orders = any(
+        order.get("status", "unknown") == "active" 
+        for order in all_orders
+    )
+    
     # Получаем текущую страницу из dialog_data (по умолчанию 0)
     current_page = dialog_manager.dialog_data.get("orders_list_page", 0)
     items_per_page = 10
@@ -117,7 +123,8 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
         "current_page": current_page,
         "total_pages": (total + items_per_page - 1) // items_per_page if total > 0 else 1,
         "has_prev": current_page > 0,
-        "has_next": end_idx < total
+        "has_next": end_idx < total,
+        "has_active_orders": has_active_orders
     }
 
 
@@ -150,6 +157,16 @@ async def on_cancel_order(callback: CallbackQuery, button: Button, manager: Dial
     await callback.answer()
 
 
+async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManager):
+    """Обработчик кнопки Exit - отправляет сообщение и закрывает диалог."""
+    await callback.message.answer(
+        """Use the /make_market command to start a new farm.
+Use the /orders command to manage your orders."""
+    )
+    await manager.done()
+    await callback.answer()
+
+
 # Окно списка ордеров
 orders_list_window = Window(
     Format("{list_text}"),
@@ -159,9 +176,9 @@ orders_list_window = Window(
     ),
     Group(
         Button(Const("🔍 Search"), id="search", on_click=on_orders_search),
-        Button(Const("❌ Cancel Order"), id="cancel_order", on_click=on_cancel_order),
+        Button(Const("❌ Cancel Order"), id="cancel_order", on_click=on_cancel_order, when="has_active_orders"),
     ),
-    Cancel(Const("🚪 Exit")),
+    Button(Const("🚪 Exit"), id="exit", on_click=on_exit),
     state=OrdersSG.orders_list,
     getter=get_orders_list_data
 )

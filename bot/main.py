@@ -1262,7 +1262,10 @@ async def handle_unknown_message(message: Message):
     Обработчик для всех сообщений, которые не попали в другие хендлеры.
     Отвечает стандартным сообщением с инструкцией.
     """
-    await message.answer("Use the /make_market command to start a new farm.")
+    await message.answer(
+        """Use the /make_market command to start a new farm.
+Use the /orders command to manage your orders."""
+    )
 
 
 # ============================================================================
@@ -1289,6 +1292,17 @@ async def main():
     
     # Регистрируем роутер
     dp.include_router(router)
+    
+    # Отправляем сообщение админу при старте (если указан)
+    if settings.admin_telegram_id and settings.admin_telegram_id != 0:
+        try:
+            await bot.send_message(
+                chat_id=settings.admin_telegram_id,
+                text="✅ Bot started successfully"
+            )
+            logger.info(f"Startup notification sent to admin {settings.admin_telegram_id}")
+        except Exception as e:
+            logger.warning(f"Failed to send startup notification to admin: {e}")
     
     logger.info("Бот запущен")
     await dp.start_polling(bot)
