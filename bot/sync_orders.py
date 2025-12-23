@@ -10,11 +10,13 @@ Algorithm:
       - Gets the current market price (best_bid for BUY, best_ask for SELL)
       - Calculates the new target price using the saved offset_ticks from the database
         (new_target_price = current_price +/- offset_ticks * tick_size)
-      - Checks the target price change:
-        * If change < 1 tick (0.001) - skips the order
-        * If change >= 1 tick - adds to cancellation and placement lists
-      - Sends price change notification to the user (regardless of cancellation/placement success)
-   c. Cancels old orders in batch via API
+      - Calculates the target price change in cents
+      - Checks if the change is sufficient using reposition_threshold_cents from the database:
+        * If change >= reposition_threshold_cents - adds to cancellation and placement lists
+        * If change < reposition_threshold_cents - skips repositioning (saves API calls)
+      - Sends price change notification to the user (always, regardless of repositioning decision)
+        The notification indicates whether the order will be repositioned or not
+   c. Cancels old orders in batch via API (only orders that need repositioning)
    d. Places new orders in batch only if all old orders were successfully cancelled
    e. Updates the database with new order_id, current_price, and target_price
    f. Sends order updated notification to the user after successful database update
@@ -22,7 +24,9 @@ Algorithm:
 
 Features:
 - Uses offset_ticks from the database, does not recalculate the delta
-- Skips orders with target price change < 1 tick (saves API calls)
+- Uses reposition_threshold_cents from the database for each order (user-configurable threshold)
+- Skips repositioning when target price change < reposition_threshold_cents (saves API calls)
+- Always sends price change notifications, indicating whether repositioning will occur
 - Checks cancellation success via result_data.errno from API response
 - Places new orders only if all old orders were successfully cancelled
 - Updates the database only after successful placement
@@ -200,6 +204,7 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
             target_price = db_order.get("target_price", 0.0)
             offset_ticks = db_order.get("offset_ticks", 0)
             amount = db_order.get("amount", 0.0)
+            reposition_threshold_cents = db_order.get("reposition_threshold_cents", 0.5)
             
             if not order_id or not market_id or not side or not token_id:
                 logger.warning(f"Пропуск ордера с неполными данными: {order_id}")
@@ -218,18 +223,12 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
                 offset_ticks
             )
             
-            # Проверяем, изменилась ли целевая цена
-            # Если новая целевая цена равна старой (с учетом округления), нет смысла перемещать ордер
+            # Вычисляем изменение целевой цены в центах
             target_price_change = abs(new_target_price - target_price)
+            target_price_change_cents = target_price_change * 100
             
-            if target_price_change < TICK_SIZE:
-                # Изменение целевой цены меньше одного тика, пропускаем ордер
-                logger.info(
-                    f"⏭️ Ордер {order_id} пропущен: изменение целевой цены недостаточно "
-                    f"({target_price_change:.6f} < {TICK_SIZE}). "
-                    f"Старая: {target_price}, Новая: {new_target_price}"
-                )
-                continue
+            # Проверяем, достаточно ли изменение для перестановки ордера
+            will_reposition = target_price_change_cents >= reposition_threshold_cents
             
             price_change = new_current_price - current_price_at_creation
             logger.info(f"Цена изменилась для ордера {order_id}:")
@@ -238,10 +237,12 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
             logger.info(f"  Изменение текущей цены: {price_change:+.6f}")
             logger.info(f"  Старая целевая цена: {target_price}")
             logger.info(f"  Новая целевая цена: {new_target_price}")
-            logger.info(f"  Изменение целевой цены: {target_price_change:+.6f} (>= {TICK_SIZE})")
+            logger.info(f"  Изменение целевой цены: {target_price_change:.6f} ({target_price_change_cents:.2f}¢)")
+            logger.info(f"  Порог перестановки: {reposition_threshold_cents:.2f}¢")
             logger.info(f"  Offset (ticks): {offset_ticks}")
+            logger.info(f"  Будет переставлен: {'Да' if will_reposition else 'Нет'}")
             
-            # Добавляем уведомление о смещении цены (независимо от успешности отмены/создания)
+            # Добавляем уведомление о смещении цены (всегда, независимо от того, будет ли переставлен ордер)
             price_change_notifications.append({
                 "order_id": order_id,
                 "market_id": market_id,
@@ -253,28 +254,38 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
                 "new_target_price": new_target_price,
                 "price_change": price_change,
                 "target_price_change": target_price_change,
+                "target_price_change_cents": target_price_change_cents,
+                "reposition_threshold_cents": reposition_threshold_cents,
                 "offset_ticks": offset_ticks,
+                "will_reposition": will_reposition,
             })
             
-            # Добавляем ордер в список для отмены
-            orders_to_cancel.append(order_id)
-            
-            # Подготавливаем параметры нового ордера
-            order_side = OrderSide.BUY if side == "BUY" else OrderSide.SELL
-            
-            new_order_params = {
-                "old_order_id": order_id,  # Старый order_id для обновления БД
-                "market_id": market_id,
-                "token_id": token_id,
-                "token_name": token_name,  # Добавляем для уведомлений
-                "side": order_side,
-                "price": new_target_price,
-                "amount": amount,
-                "current_price_at_creation": new_current_price,  # Сохраняем для обновления БД
-                "target_price": new_target_price,  # Сохраняем для обновления БД
-            }
-            
-            orders_to_place.append(new_order_params)
+            # Добавляем ордер в списки для отмены/размещения только если изменение достаточно
+            if will_reposition:
+                # Добавляем ордер в список для отмены
+                orders_to_cancel.append(order_id)
+                
+                # Подготавливаем параметры нового ордера
+                order_side = OrderSide.BUY if side == "BUY" else OrderSide.SELL
+                
+                new_order_params = {
+                    "old_order_id": order_id,  # Старый order_id для обновления БД
+                    "market_id": market_id,
+                    "token_id": token_id,
+                    "token_name": token_name,  # Добавляем для уведомлений
+                    "side": order_side,
+                    "price": new_target_price,
+                    "amount": amount,
+                    "current_price_at_creation": new_current_price,  # Сохраняем для обновления БД
+                    "target_price": new_target_price,  # Сохраняем для обновления БД
+                }
+                
+                orders_to_place.append(new_order_params)
+            else:
+                logger.info(
+                    f"⏭️ Ордер {order_id} не будет переставлен: изменение целевой цены недостаточно "
+                    f"({target_price_change_cents:.2f}¢ < {reposition_threshold_cents:.2f}¢)"
+                )
             
         except Exception as e:
             logger.error(f"Ошибка при обработке ордера {db_order.get('order_id', 'unknown')}: {e}")
@@ -421,8 +432,21 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
         offset_ticks = notification['offset_ticks']
         offset_cents = offset_ticks * TICK_SIZE * 100
         
+        # Get reposition information
+        target_price_change_cents = notification.get("target_price_change_cents", 0.0)
+        reposition_threshold_cents = notification.get("reposition_threshold_cents", 0.5)
+        will_reposition = notification.get("will_reposition", False)
+        
         side_emoji = "📈" if notification["side"] == "BUY" else "📉"
         change_sign = "+" if notification["price_change"] > 0 else ""
+        
+        # Status message based on whether order will be repositioned
+        if will_reposition:
+            status_emoji = "✅"
+            status_text = f"Order will be repositioned (change: {target_price_change_cents:.2f}¢ >= threshold: {reposition_threshold_cents:.2f}¢)"
+        else:
+            status_emoji = "⏸️"
+            status_text = f"Order will NOT be repositioned (change: {target_price_change_cents:.2f}¢ < threshold: {reposition_threshold_cents:.2f}¢)"
         
         message = f"""🔔 <b>Price Change Detected</b>
 
@@ -437,11 +461,13 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
 🎯 <b>Target Price:</b>
    Old: {old_target_cents:.2f}¢
    New: {new_target_cents:.2f}¢
+   Change: {target_price_change_cents:.2f}¢
 
-⚙️ Offset: {offset_cents:.2f}¢
+⚙️ <b>Settings:</b>
+   Offset: {offset_cents:.2f}¢
+   Reposition threshold: {reposition_threshold_cents:.2f}¢
 
-Order will be moved to maintain the offset.
-You will notify about it."""
+{status_emoji} <b>Status:</b> {status_text}"""
         
         await bot.send_message(chat_id=telegram_id, text=message)
         logger.info(f"Sent price change notification to user {telegram_id} for order {notification['order_id']}")

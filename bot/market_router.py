@@ -38,6 +38,7 @@ class MarketOrderStates(StatesGroup):
     waiting_side = State()
     waiting_offset_ticks = State()
     waiting_direction = State()
+    waiting_reposition_threshold = State()  # Порог отклонения для перестановки ордера
     waiting_confirm = State()
 
 
@@ -918,47 +919,27 @@ Offset {offset_ticks} ticks is too large for current price {current_price:.6f}""
         target_price=target_price
     )
     
-    # Format confirmation information
-    market = data['market']
-    amount = data['amount']
-    tick_size = data.get('tick_size', TICK_SIZE)
-    
-    # Convert offset from ticks to cents
-    offset_cents = offset_ticks * tick_size * 100
-    
-    # Convert prices to cents and remove trailing zeros
-    current_price_cents = current_price * 100
-    target_price_cents = target_price * 100
-    
-    # Format prices without trailing zeros
-    current_price_str = f"{current_price_cents:.2f}".rstrip('0').rstrip('.')
-    target_price_str = f"{target_price_cents:.2f}".rstrip('0').rstrip('.')
-    offset_cents_str = f"{offset_cents:.2f}".rstrip('0').rstrip('.')
-    
-    confirm_text = (
-        f"""📋 Settings Confirmation
-
-📊 Market:
-Name: {market.market_title}
-Outcome: {token_name}
-
-💰 Farm settings:
-Side: {direction} {token_name}
-Current price: {current_price_str}¢
-Current target price: {target_price_str}¢
-Offset: {offset_cents_str}¢
-
-Amount: {amount} USDT"""
-    )
-    
+    # Ask for reposition threshold
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Place Order", callback_data="confirm_yes")
     builder.button(text="✖️ Cancel", callback_data="cancel")
-    builder.adjust(2)
     
-    await callback.message.edit_text(confirm_text, reply_markup=builder.as_markup())
+    await callback.message.edit_text(
+        """⚙️ <b>Reposition Threshold</b>
+
+Enter the price deviation threshold (in cents) for repositioning the order.
+
+For example:
+• <code>0.5</code> - reposition when price changes by 0.5 cents or more
+• <code>1.0</code> - reposition when price changes by 1 cent or more
+• <code>2.0</code> - reposition when price changes by 2 cents or more
+
+Recommended: <code>0.5</code> cents
+
+Enter the threshold:""",
+        reply_markup=builder.as_markup()
+    )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_confirm)
+    await state.set_state(MarketOrderStates.waiting_reposition_threshold)
 
 
 @market_router.callback_query(F.data == "cancel")
@@ -979,6 +960,82 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     
     # Send instruction message
     await callback.message.answer("Use the /make_market command to start a new farm.")
+
+
+@market_router.message(MarketOrderStates.waiting_reposition_threshold)
+async def process_reposition_threshold(message: Message, state: FSMContext):
+    """Handles reposition threshold input (in cents)."""
+    try:
+        threshold_cents = float(message.text.strip())
+        
+        # Validation: must be positive
+        if threshold_cents <= 0:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="✖️ Cancel", callback_data="cancel")
+            await message.answer(
+                "❌ Threshold must be a positive number.\n\nEnter the threshold in cents (e.g., 0.5):",
+                reply_markup=builder.as_markup()
+            )
+            return
+        
+        # Save threshold to state
+        await state.update_data(reposition_threshold_cents=threshold_cents)
+        
+        # Get all data for confirmation
+        data = await state.get_data()
+        market = data['market']
+        token_name = data['token_name']
+        direction = data['direction']
+        current_price = data['current_price']
+        target_price = data['target_price']
+        offset_ticks = data['offset_ticks']
+        amount = data['amount']
+        tick_size = data.get('tick_size', TICK_SIZE)
+        
+        # Convert offset from ticks to cents
+        offset_cents = offset_ticks * tick_size * 100
+        
+        # Convert prices to cents and remove trailing zeros
+        current_price_cents = current_price * 100
+        target_price_cents = target_price * 100
+        
+        # Format prices without trailing zeros
+        current_price_str = f"{current_price_cents:.2f}".rstrip('0').rstrip('.')
+        target_price_str = f"{target_price_cents:.2f}".rstrip('0').rstrip('.')
+        offset_cents_str = f"{offset_cents:.2f}".rstrip('0').rstrip('.')
+        
+        confirm_text = (
+            f"""📋 <b>Settings Confirmation</b>
+
+📊 <b>Market:</b>
+Name: {market.market_title}
+Outcome: {token_name}
+
+💰 <b>Farm settings:</b>
+Side: {direction} {token_name}
+Current price: {current_price_str}¢
+Current target price: {target_price_str}¢
+Offset: {offset_cents_str}¢
+Reposition threshold: {threshold_cents:.2f}¢
+
+Amount: {amount} USDT"""
+        )
+        
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✅ Place Order", callback_data="confirm_yes")
+        builder.button(text="✖️ Cancel", callback_data="cancel")
+        builder.adjust(2)
+        
+        await message.answer(confirm_text, reply_markup=builder.as_markup())
+        await state.set_state(MarketOrderStates.waiting_confirm)
+        
+    except ValueError:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✖️ Cancel", callback_data="cancel")
+        await message.answer(
+            "❌ Invalid format. Enter a number (e.g., 0.5 for 0.5 cents):",
+            reply_markup=builder.as_markup()
+        )
 
 
 @market_router.callback_query(F.data.startswith("confirm_"), MarketOrderStates.waiting_confirm)
@@ -1024,6 +1081,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
             tick_size = data.get('tick_size', TICK_SIZE)
             offset_cents = offset_ticks * tick_size * 100
             amount = data['amount']
+            reposition_threshold_cents = data.get('reposition_threshold_cents', 0.5)
             
             # Сохраняем ордер в базу данных
             await save_order(
@@ -1039,7 +1097,8 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                 offset_ticks=offset_ticks,
                 offset_cents=offset_cents,
                 amount=amount,
-                status='active'
+                status='active',
+                reposition_threshold_cents=reposition_threshold_cents
             )
             logger.info(f"Order {order_id} successfully saved to DB for user {telegram_id}")
         except Exception as e:
@@ -1053,6 +1112,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Price: {data['target_price']:.6f}
 • Amount: {data['amount']} USDT
 • Offset: {offset_cents:.2f}¢
+• Reposition threshold: {reposition_threshold_cents:.2f}¢
 • Order ID: <code>{order_id}</code>"""
         )
     else:

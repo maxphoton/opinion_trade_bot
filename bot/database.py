@@ -59,6 +59,7 @@ async def init_database():
                 offset_cents REAL NOT NULL,
                 amount REAL NOT NULL,
                 status TEXT DEFAULT 'active',
+                reposition_threshold_cents REAL DEFAULT 0.5,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
             )
@@ -73,6 +74,18 @@ async def init_database():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)
         """)
+        
+        # Добавляем поле reposition_threshold_cents если его нет (миграция)
+        try:
+            await conn.execute("""
+                ALTER TABLE orders ADD COLUMN reposition_threshold_cents REAL DEFAULT 0.5
+            """)
+            await conn.commit()
+            logger.info("Добавлено поле reposition_threshold_cents в таблицу orders")
+        except aiosqlite.OperationalError as e:
+            # Поле уже существует, игнорируем ошибку
+            if "duplicate column" not in str(e).lower():
+                logger.warning(f"Ошибка при добавлении поля reposition_threshold_cents: {e}")
         
         await conn.commit()
     logger.info("База данных инициализирована")
@@ -152,7 +165,7 @@ async def save_user(telegram_id: int, username: Optional[str], wallet_address: s
 async def save_order(telegram_id: int, order_id: str, market_id: int, market_title: Optional[str],
                token_id: str, token_name: str, side: str, current_price: float,
                target_price: float, offset_ticks: int, offset_cents: float, amount: float,
-               status: str = 'active'):
+               status: str = 'active', reposition_threshold_cents: float = 0.5):
     """
     Сохраняет информацию об ордере в базу данных.
     
@@ -170,16 +183,17 @@ async def save_order(telegram_id: int, order_id: str, market_id: int, market_tit
         offset_cents: Отступ в центах
         amount: Сумма ордера в USDT
         status: Статус ордера (active/cancelled/filled)
+        reposition_threshold_cents: Порог отклонения в центах для перестановки ордера
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("""
             INSERT INTO orders 
             (telegram_id, order_id, market_id, market_title, token_id, token_name, 
-             side, current_price, target_price, offset_ticks, offset_cents, amount, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             side, current_price, target_price, offset_ticks, offset_cents, amount, status, reposition_threshold_cents)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             telegram_id, order_id, market_id, market_title, token_id, token_name,
-            side, current_price, target_price, offset_ticks, offset_cents, amount, status
+            side, current_price, target_price, offset_ticks, offset_cents, amount, status, reposition_threshold_cents
         ))
         
         await conn.commit()
