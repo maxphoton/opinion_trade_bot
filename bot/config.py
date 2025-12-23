@@ -30,3 +30,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Константы для работы с рынками
+TICK_SIZE = 0.001  # Размер тика для цен на Opinion.trade
+

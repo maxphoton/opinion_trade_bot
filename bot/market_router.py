@@ -22,6 +22,7 @@ from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
 
 from database import get_user, save_order
 from client_factory import create_client
+from config import TICK_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def calculate_spread_and_liquidity(orderbook, token_name: str) -> dict:
     }
 
 
-def calculate_target_price(current_price: float, side: str, offset_ticks: int, tick_size: float = 0.001) -> Tuple[float, bool]:
+def calculate_target_price(current_price: float, side: str, offset_ticks: int, tick_size: float = TICK_SIZE) -> Tuple[float, bool]:
     """
     Calculates target price for limit order.
     
@@ -699,7 +700,7 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
         return
     
     # Calculate maximum tick values for BUY and SELL
-    tick_size = 0.001
+    tick_size = TICK_SIZE
     MIN_PRICE = 0.001
     MAX_PRICE = 0.999
     
@@ -765,7 +766,7 @@ async def process_offset_ticks(message: Message, state: FSMContext):
         data = await state.get_data()
         best_bid = data.get('best_bid')
         current_price = data['current_price']
-        tick_size = data.get('tick_size', 0.001)
+        tick_size = data.get('tick_size', TICK_SIZE)
         max_offset_buy = data.get('max_offset_buy', 0)
         max_offset_sell = data.get('max_offset_sell', 0)
         
@@ -849,7 +850,7 @@ Select order direction:""",
         await state.set_state(MarketOrderStates.waiting_direction)
     except ValueError:
         data = await state.get_data()
-        tick_size = data.get('tick_size', 0.001)
+        tick_size = data.get('tick_size', TICK_SIZE)
         max_offset_buy = data.get('max_offset_buy', 0)
         max_offset_sell = data.get('max_offset_sell', 0)
         max_offset = max(max_offset_buy, max_offset_sell)
@@ -870,7 +871,7 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_price = data['current_price']
     offset_ticks = data['offset_ticks']
-    tick_size = data.get('tick_size', 0.001)
+    tick_size = data.get('tick_size', TICK_SIZE)
     token_name = data['token_name']
     max_offset_buy = data.get('max_offset_buy', 0)
     max_offset_sell = data.get('max_offset_sell', 0)
@@ -920,7 +921,7 @@ Offset {offset_ticks} ticks is too large for current price {current_price:.6f}""
     # Format confirmation information
     market = data['market']
     amount = data['amount']
-    tick_size = data.get('tick_size', 0.001)
+    tick_size = data.get('tick_size', TICK_SIZE)
     
     # Convert offset from ticks to cents
     offset_cents = offset_ticks * tick_size * 100
@@ -1020,7 +1021,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
             current_price = data['current_price']
             target_price = data['target_price']
             offset_ticks = data['offset_ticks']
-            tick_size = data.get('tick_size', 0.001)
+            tick_size = data.get('tick_size', TICK_SIZE)
             offset_cents = offset_ticks * tick_size * 100
             amount = data['amount']
             
@@ -1051,8 +1052,8 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Side: {data['direction']} {data['token_name']}
 • Price: {data['target_price']:.6f}
 • Amount: {data['amount']} USDT
-• Offset: {data['offset_ticks']} ticks
-• Order ID: {order_id}"""
+• Offset: {offset_cents:.2f}¢
+• Order ID: <code>{order_id}</code>"""
         )
     else:
         error_text = f"""❌ <b>Failed to place order</b>

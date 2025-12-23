@@ -35,6 +35,7 @@ from typing import List, Dict, Optional, Tuple
 
 from database import get_user, get_user_orders, get_all_users, update_order_in_db
 from client_factory import create_client, setup_proxy
+from config import TICK_SIZE
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
 
@@ -114,7 +115,7 @@ def calculate_new_target_price(
     new_current_price: float,
     side: str,
     offset_ticks: int,
-    tick_size: float = 0.001
+    tick_size: float = TICK_SIZE
 ) -> float:
     """
     Вычисляет новую целевую цену с использованием сохраненного offset_ticks.
@@ -219,7 +220,6 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
             
             # Проверяем, изменилась ли целевая цена
             # Если новая целевая цена равна старой (с учетом округления), нет смысла перемещать ордер
-            TICK_SIZE = 0.001
             target_price_change = abs(new_target_price - target_price)
             
             if target_price_change < TICK_SIZE:
@@ -417,6 +417,10 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
         new_target_cents = notification["new_target_price"] * 100
         price_change_cents = notification["price_change"] * 100
         
+        # Convert offset_ticks to cents
+        offset_ticks = notification['offset_ticks']
+        offset_cents = offset_ticks * TICK_SIZE * 100
+        
         side_emoji = "📈" if notification["side"] == "BUY" else "📉"
         change_sign = "+" if notification["price_change"] > 0 else ""
         
@@ -434,7 +438,7 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
    Old: {old_target_cents:.2f}¢
    New: {new_target_cents:.2f}¢
 
-⚙️ Offset: {notification['offset_ticks']} ticks
+⚙️ Offset: {offset_cents:.2f}¢
 
 Order will be moved to maintain the offset.
 You will notify about it."""
