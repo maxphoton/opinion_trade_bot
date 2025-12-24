@@ -24,7 +24,7 @@ from config import settings
 from database import (
     init_database,
     get_user,
-    export_users_to_csv
+    export_all_tables_to_zip
 )
 from spam_protection import AntiSpamMiddleware
 from orders_dialog import orders_dialog, OrdersSG
@@ -64,24 +64,24 @@ from market_router import market_router
 
 @router.message(Command("get_db"))
 async def cmd_get_db(message: Message):
-    """Обработчик команды /get_db - экспорт базы данных в CSV (только для администратора)."""
+    """Обработчик команды /get_db - экспорт всех таблиц базы данных в ZIP архив (только для администратора)."""
     # Проверяем права администратора
     if message.from_user.id != settings.admin_telegram_id:
         return
     
     try:
-        # Экспортируем данные в CSV
-        csv_content = await export_users_to_csv()
+        # Экспортируем все таблицы в ZIP архив
+        zip_content = await export_all_tables_to_zip()
         
         # Создаем файл для отправки
-        csv_file = BufferedInputFile(
-            csv_content.encode('utf-8'),
-            filename="users_export.csv"
+        zip_file = BufferedInputFile(
+            zip_content,
+            filename="database_export.zip"
         )
         
         await message.answer_document(
-            document=csv_file,
-            caption="📊 User database export"
+            document=zip_file,
+            caption="📊 Database export (all tables)"
         )
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
     except Exception as e:

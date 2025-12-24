@@ -11,6 +11,7 @@
 import csv
 import io
 import logging
+import zipfile
 import aiosqlite
 from pathlib import Path
 from typing import Optional
@@ -317,18 +318,21 @@ async def get_all_users():
     return [row[0] for row in rows]
 
 
-async def export_users_to_csv() -> str:
+async def export_table_to_csv(conn: aiosqlite.Connection, table_name: str) -> str:
     """
-    Экспортирует таблицу users в CSV формат.
+    Экспортирует одну таблицу в CSV формат.
+    
+    Args:
+        conn: Соединение с базой данных
+        table_name: Название таблицы
     
     Returns:
         str: CSV содержимое в виде строки
     """
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT * FROM users") as cursor:
-            rows = await cursor.fetchall()
-            # Получаем названия колонок
-            column_names = [description[0] for description in cursor.description]
+    async with conn.execute(f"SELECT * FROM {table_name}") as cursor:
+        rows = await cursor.fetchall()
+        # Получаем названия колонок
+        column_names = [description[0] for description in cursor.description]
     
     # Создаем CSV в памяти
     output = io.StringIO()
@@ -350,3 +354,51 @@ async def export_users_to_csv() -> str:
         writer.writerow(csv_row)
     
     return output.getvalue()
+
+
+async def export_users_to_csv() -> str:
+    """
+    Экспортирует таблицу users в CSV формат.
+    
+    Returns:
+        str: CSV содержимое в виде строки
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        return await export_table_to_csv(conn, "users")
+
+
+async def export_all_tables_to_zip() -> bytes:
+    """
+    Экспортирует все таблицы из базы данных в ZIP архив с CSV файлами.
+    
+    Returns:
+        bytes: ZIP архив в виде байтов
+    """
+    # Создаем ZIP архив в памяти
+    zip_buffer = io.BytesIO()
+    
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Получаем список всех таблиц
+        async with conn.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+        """) as cursor:
+            tables = await cursor.fetchall()
+            table_names = [row[0] for row in tables]
+        
+        # Экспортируем каждую таблицу в CSV и добавляем в ZIP
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for table_name in table_names:
+                try:
+                    csv_content = await export_table_to_csv(conn, table_name)
+                    # Добавляем CSV файл в ZIP с именем таблицы
+                    zip_file.writestr(f"{table_name}.csv", csv_content.encode('utf-8'))
+                    logger.info(f"Экспортирована таблица {table_name}")
+                except Exception as e:
+                    logger.error(f"Ошибка при экспорте таблицы {table_name}: {e}")
+                    # Добавляем файл с ошибкой
+                    zip_file.writestr(f"{table_name}_error.txt", f"Error exporting table: {e}")
+    
+    zip_buffer.seek(0)
+    return zip_buffer.read()
