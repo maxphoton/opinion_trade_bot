@@ -4,8 +4,10 @@
 Покрывает различные кейсы:
 - Когда изменение цены достаточно для перестановки ордера
 - Когда изменение недостаточно
-- Проверка уведомлений
+- Проверка уведомлений о смещении цены
 - Проверка правильности списков для отмены/размещения
+- Уведомления об ошибках отмены ордеров (send_cancellation_error_notification)
+- Уведомления об ошибках размещения ордеров (send_order_placement_error_notification)
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,9 +18,17 @@ from typing import Dict, List
 from sync_orders import (
     process_user_orders,
     calculate_new_target_price,
-    get_current_market_price
+    get_current_market_price,
+    send_cancellation_error_notification,
+    send_order_placement_error_notification
 )
 from config import TICK_SIZE
+
+# Мокируем OrderSide для тестов
+# Создаем MagicMock объекты, которые будут использоваться для сравнения
+MockOrderSide = MagicMock()
+MockOrderSide.BUY = MagicMock()
+MockOrderSide.SELL = MagicMock()
 
 
 class TestCalculateNewTargetPrice:
@@ -233,12 +243,8 @@ class TestProcessUserOrders:
             assert len(orders_to_cancel) == 0
             assert len(orders_to_place) == 0
             
-            # Проверяем, что уведомление все равно отправлено
-            assert len(notifications) == 1
-            notification = notifications[0]
-            assert notification["order_id"] == "order_456"
-            assert notification["will_reposition"] is False
-            assert notification["target_price_change_cents"] < 0.5
+            # Уведомление НЕ отправляется, так как изменение недостаточно для перестановки
+            assert len(notifications) == 0
     
     @pytest.mark.asyncio
     async def test_no_price_change(self, mock_user, mock_client):
@@ -273,9 +279,8 @@ class TestProcessUserOrders:
             # Изменение: 0.0 (< 0.5)
             assert len(orders_to_cancel) == 0
             assert len(orders_to_place) == 0
-            assert len(notifications) == 1
-            assert notifications[0]["will_reposition"] is False
-            assert notifications[0]["target_price_change_cents"] == 0.0
+            # Уведомление НЕ отправляется, так как изменение недостаточно для перестановки
+            assert len(notifications) == 0
     
     @pytest.mark.asyncio
     async def test_multiple_orders_mixed(self, mock_user, mock_client):
@@ -335,20 +340,17 @@ class TestProcessUserOrders:
             assert orders_to_cancel[0] == "order_1"
             assert len(orders_to_place) == 1
             
-            # Оба уведомления должны быть отправлены
-            assert len(notifications) == 2
+            # Уведомление отправляется только для первого ордера (который будет переставлен)
+            assert len(notifications) == 1
             
-            # Проверяем первое уведомление (достаточно)
-            notif1 = next(n for n in notifications if n["order_id"] == "order_1")
+            # Проверяем уведомление для первого ордера
+            notif1 = notifications[0]
+            assert notif1["order_id"] == "order_1"
             assert notif1["will_reposition"] is True
-            
-            # Проверяем второе уведомление (недостаточно)
-            notif2 = next(n for n in notifications if n["order_id"] == "order_2")
-            assert notif2["will_reposition"] is False
     
     @pytest.mark.asyncio
-    async def test_notification_always_sent(self, mock_user, mock_client):
-        """Тест: уведомление отправляется всегда, даже если изменение недостаточно"""
+    async def test_notification_only_when_repositioning(self, mock_user, mock_client):
+        """Тест: уведомление отправляется только когда ордер будет переставлен"""
         db_order = {
             "order_id": "order_notify",
             "market_id": 100,
@@ -378,13 +380,8 @@ class TestProcessUserOrders:
             assert len(orders_to_cancel) == 0
             assert len(orders_to_place) == 0
             
-            # Но уведомление должно быть отправлено
-            assert len(notifications) == 1
-            notification = notifications[0]
-            assert notification["order_id"] == "order_notify"
-            assert notification["will_reposition"] is False
-            assert "target_price_change_cents" in notification
-            assert "reposition_threshold_cents" in notification
+            # Уведомление НЕ отправляется, так как изменение недостаточно для перестановки
+            assert len(notifications) == 0
     
     @pytest.mark.asyncio
     async def test_notification_structure(self, mock_user, mock_client):
@@ -439,6 +436,281 @@ class TestProcessUserOrders:
             assert notification["new_current_price"] == 0.510
             assert notification["reposition_threshold_cents"] == 0.5
             assert isinstance(notification["will_reposition"], bool)
+
+
+class TestCancellationErrorNotification:
+    """Тесты для функции send_cancellation_error_notification"""
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_single_order(self):
+        """Тест: отправка уведомления об ошибке отмены одного ордера"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        failed_orders = [
+            {
+                "order_id": "order_123",
+                "market_id": 100,
+                "token_name": "YES",
+                "side": "BUY",
+                "errno": 10207,
+                "errmsg": "Order not found"
+            }
+        ]
+        
+        await send_cancellation_error_notification(mock_bot, telegram_id, failed_orders)
+        
+        # Проверяем, что send_message был вызван
+        assert mock_bot.send_message.called
+        call_args = mock_bot.send_message.call_args
+        
+        assert call_args.kwargs['chat_id'] == telegram_id
+        message = call_args.kwargs['text']
+        
+        # Проверяем содержимое сообщения
+        assert "Order Cancellation Failed" in message
+        assert "Failed to cancel 1 order(s)" in message
+        assert "order_123" in message
+        assert "100" in message
+        assert "YES" in message
+        assert "BUY" in message
+        assert "10207" in message
+        assert "Order not found" in message
+        assert "New orders will NOT be placed" in message
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_multiple_orders(self):
+        """Тест: отправка уведомления об ошибке отмены нескольких ордеров"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        failed_orders = [
+            {
+                "order_id": "order_1",
+                "market_id": 100,
+                "token_name": "YES",
+                "side": "BUY",
+                "errno": 10207,
+                "errmsg": "Order not found"
+            },
+            {
+                "order_id": "order_2",
+                "market_id": 200,
+                "token_name": "NO",
+                "side": "SELL",
+                "errno": 10208,
+                "errmsg": "Insufficient balance"
+            }
+        ]
+        
+        await send_cancellation_error_notification(mock_bot, telegram_id, failed_orders)
+        
+        assert mock_bot.send_message.called
+        call_args = mock_bot.send_message.call_args
+        message = call_args.kwargs['text']
+        
+        # Проверяем, что оба ордера упомянуты
+        assert "Failed to cancel 2 order(s)" in message
+        assert "order_1" in message
+        assert "order_2" in message
+        assert "100" in message
+        assert "200" in message
+    
+    @pytest.mark.asyncio
+    async def test_empty_failed_orders_list(self):
+        """Тест: пустой список неудачных отмен (не должно отправляться сообщение)"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        await send_cancellation_error_notification(mock_bot, telegram_id, [])
+        
+        # Проверяем, что send_message НЕ был вызван
+        assert not mock_bot.send_message.called
+    
+    @pytest.mark.asyncio
+    async def test_missing_fields_in_failed_order(self):
+        """Тест: обработка отсутствующих полей в failed_orders"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        # Ордер с неполными данными
+        failed_orders = [
+            {
+                "order_id": "order_123",
+                # Отсутствуют некоторые поля
+            }
+        ]
+        
+        await send_cancellation_error_notification(mock_bot, telegram_id, failed_orders)
+        
+        assert mock_bot.send_message.called
+        call_args = mock_bot.send_message.call_args
+        message = call_args.kwargs['text']
+        
+        # Проверяем, что используются значения по умолчанию
+        assert "order_123" in message
+        assert "N/A" in message  # Для отсутствующих полей
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_error_handling(self):
+        """Тест: обработка ошибки при отправке уведомления"""
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = Exception("Telegram API error")
+        telegram_id = 12345
+        
+        failed_orders = [
+            {
+                "order_id": "order_123",
+                "market_id": 100,
+                "token_name": "YES",
+                "side": "BUY",
+                "errno": 10207,
+                "errmsg": "Order not found"
+            }
+        ]
+        
+        # Функция должна обработать ошибку и не упасть
+        await send_cancellation_error_notification(mock_bot, telegram_id, failed_orders)
+        
+        # Проверяем, что send_message был вызван (ошибка обработана внутри функции)
+        assert mock_bot.send_message.called
+
+
+class TestOrderPlacementErrorNotification:
+    """Тесты для функции send_order_placement_error_notification"""
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_buy_order(self):
+        """Тест: отправка уведомления об ошибке размещения BUY ордера"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        # Мокируем OrderSide в sync_orders модуле
+        with patch('sync_orders.OrderSide', MockOrderSide):
+            order_params = {
+                "market_id": 100,
+                "token_name": "YES",
+                "side": MockOrderSide.BUY,
+                "current_price_at_creation": 0.500,
+                "target_price": 0.490,
+                "amount": 100.0
+            }
+            old_order_id = "order_123"
+            errno = 10207
+            errmsg = "Insufficient balance"
+            
+            await send_order_placement_error_notification(
+                mock_bot, telegram_id, order_params, old_order_id, errno, errmsg
+            )
+            
+            assert mock_bot.send_message.called
+            call_args = mock_bot.send_message.call_args
+            
+            assert call_args.kwargs['chat_id'] == telegram_id
+            message = call_args.kwargs['text']
+            
+            # Проверяем содержимое сообщения
+            assert "Order Repositioning Failed" in message
+            assert "YES BUY" in message
+            assert "100" in message
+            assert "order_123" in message
+            assert "49.00 cents" in message  # 0.490 * 100
+            assert "100.0 USDT" in message
+            assert "Error 10207" in message
+            assert "Insufficient balance" in message
+            assert "📈" in message  # Эмодзи для BUY
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_sell_order(self):
+        """Тест: отправка уведомления об ошибке размещения SELL ордера"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        # Мокируем OrderSide для этого теста
+        with patch('sync_orders.OrderSide', MockOrderSide):
+            order_params = {
+                "market_id": 200,
+                "token_name": "NO",
+                "side": MockOrderSide.SELL,
+                "current_price_at_creation": 0.600,
+                "target_price": 0.610,
+                "amount": 50.0
+            }
+            old_order_id = "order_456"
+            errno = 10208
+            errmsg = "Market closed"
+            
+            await send_order_placement_error_notification(
+                mock_bot, telegram_id, order_params, old_order_id, errno, errmsg
+            )
+            
+            assert mock_bot.send_message.called
+            call_args = mock_bot.send_message.call_args
+            message = call_args.kwargs['text']
+            
+            assert "NO SELL" in message
+            assert "61.00 cents" in message  # 0.610 * 100
+            assert "50.0 USDT" in message
+            assert "📉" in message  # Эмодзи для SELL
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_missing_fields(self):
+        """Тест: обработка отсутствующих полей в order_params"""
+        mock_bot = AsyncMock()
+        telegram_id = 12345
+        
+        # Мокируем OrderSide для этого теста
+        with patch('sync_orders.OrderSide', MockOrderSide):
+            # order_params с неполными данными
+            order_params = {
+                "market_id": 100,
+                # Отсутствуют некоторые поля
+            }
+            old_order_id = "order_123"
+            errno = 10207
+            errmsg = "Error"
+            
+            # Функция должна обработать отсутствующие поля
+            await send_order_placement_error_notification(
+                mock_bot, telegram_id, order_params, old_order_id, errno, errmsg
+            )
+            
+            assert mock_bot.send_message.called
+            call_args = mock_bot.send_message.call_args
+            message = call_args.kwargs['text']
+            
+            # Проверяем, что сообщение сформировано (используются значения по умолчанию)
+            assert "Order Repositioning Failed" in message
+            assert "order_123" in message
+    
+    @pytest.mark.asyncio
+    async def test_send_notification_error_handling(self):
+        """Тест: обработка ошибки при отправке уведомления"""
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = Exception("Telegram API error")
+        telegram_id = 12345
+        
+        # Мокируем OrderSide для этого теста
+        with patch('sync_orders.OrderSide', MockOrderSide):
+            order_params = {
+                "market_id": 100,
+                "token_name": "YES",
+                "side": MockOrderSide.BUY,
+                "current_price_at_creation": 0.500,
+                "target_price": 0.490,
+                "amount": 100.0
+            }
+            old_order_id = "order_123"
+            errno = 10207
+            errmsg = "Error"
+            
+            # Функция должна обработать ошибку и не упасть
+            await send_order_placement_error_notification(
+                mock_bot, telegram_id, order_params, old_order_id, errno, errmsg
+            )
+            
+            # Проверяем, что send_message был вызван (ошибка обработана внутри функции)
+            assert mock_bot.send_message.called
 
 
 if __name__ == "__main__":

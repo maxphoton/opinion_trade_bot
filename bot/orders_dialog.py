@@ -77,24 +77,19 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
     else:
         for i, order in enumerate(orders_page, start_idx + 1):
             order_id = order.get("order_id", "N/A")
+            market_id = order.get("market_id", "N/A")
             market_title = order.get("market_title", "N/A")
             token_name = order.get("token_name", "N/A")
             side = order.get("side", "N/A")
             target_price = order.get("target_price", 0)
             amount = order.get("amount", 0)
             status = order.get("status", "unknown")
-            created_at = order.get("created_at", "")
+            reposition_threshold_cents = float(order.get("reposition_threshold_cents"))
             
-            # Форматируем дату
-            if created_at:
-                if isinstance(created_at, str):
-                    date_str = created_at[:16]  # Берем дату и время
-                elif hasattr(created_at, 'strftime'):
-                    date_str = created_at.strftime("%Y-%m-%d %H:%M")
-                else:
-                    date_str = str(created_at)[:16] if len(str(created_at)) >= 16 else "N/A"
-            else:
-                date_str = "N/A"
+            created_at = order.get("created_at")
+            # SQLite возвращает TIMESTAMP как строку в формате "YYYY-MM-DD HH:MM:SS"
+            # Берем первые 16 символов для формата "YYYY-MM-DD HH:MM"
+            date_str = created_at[:16] if created_at and len(str(created_at)) >= 16 else "N/A"
             
             # Статус с эмодзи
             status_emoji = {
@@ -112,7 +107,8 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
             
             text += f"""<b>{i}.</b> {status_emoji} <code>{order_id}</code>
    {side_emoji} {side} {token_name} | {price_str}¢ | {amount} USDT
-   📊 {market_title[:30]}...
+   📊 Market ID: {market_id} | {market_title[:25]}...
+   ⚙️ Reposition threshold: {reposition_threshold_cents:.2f}¢
    📅 {date_str}
 
 """
@@ -334,24 +330,19 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
     
     for i, order in enumerate(orders_page, start_idx + 1):
         order_id = order.get("order_id", "N/A")
+        market_id = order.get("market_id", "N/A")
         market_title = order.get("market_title", "N/A")
         token_name = order.get("token_name", "N/A")
         side = order.get("side", "N/A")
         target_price = order.get("target_price", 0)
         amount = order.get("amount", 0)
         status = order.get("status", "unknown")
-        created_at = order.get("created_at", "")
+        reposition_threshold_cents = float(order.get("reposition_threshold_cents"))
         
-        # Форматируем дату
-        if created_at:
-            if isinstance(created_at, str):
-                date_str = created_at[:16]
-            elif hasattr(created_at, 'strftime'):
-                date_str = created_at.strftime("%Y-%m-%d %H:%M")
-            else:
-                date_str = str(created_at)[:16] if len(str(created_at)) >= 16 else "N/A"
-        else:
-            date_str = "N/A"
+        created_at = order.get("created_at")
+        # SQLite возвращает TIMESTAMP как строку в формате "YYYY-MM-DD HH:MM:SS"
+        # Берем первые 16 символов для формата "YYYY-MM-DD HH:MM"
+        date_str = created_at[:16] if created_at and len(str(created_at)) >= 16 else "N/A"
         
         # Статус с эмодзи
         status_emoji = {
@@ -369,7 +360,8 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
         
         text += f"""<b>{i}.</b> {status_emoji} <code>{order_id}</code>
    {side_emoji} {side} {token_name} | {price_str}¢ | {amount} USDT
-   📊 {market_title[:30]}...
+   📊 Market ID: {market_id} | {market_title[:25]}...
+   ⚙️ Reposition threshold: {reposition_threshold_cents:.2f}¢
    📅 {date_str}
 
 """

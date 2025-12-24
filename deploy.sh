@@ -88,6 +88,8 @@ upload_files() {
         --exclude='simple_flow.py' \
         --exclude='tests' \
         --exclude='pytest.ini' \
+        --exclude='logs' \
+        --exclude='*.log' \
         ./ "$SERVER_USER@$SERVER_HOST:$SERVER_PATH/"
     
     print_info "Файлы загружены"

@@ -6,3 +6,5 @@ venv/
 .cursor/
 develop/
 .git/credentials
+logs/
+*.log

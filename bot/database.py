@@ -212,26 +212,26 @@ async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> lis
     Returns:
         list: Список словарей с данными ордеров
     """
+    # Явно указываем колонки в правильном порядке
+    columns = ['id', 'telegram_id', 'order_id', 'market_id', 'market_title', 
+               'token_id', 'token_name', 'side', 'current_price', 'target_price',
+               'offset_ticks', 'offset_cents', 'amount', 'status', 'reposition_threshold_cents', 'created_at']
+    
     async with aiosqlite.connect(DB_PATH) as conn:
         if status:
-            async with conn.execute("""
-                SELECT * FROM orders 
+            async with conn.execute(f"""
+                SELECT {', '.join(columns)} FROM orders 
                 WHERE telegram_id = ? AND status = ?
                 ORDER BY created_at DESC
             """, (telegram_id, status)) as cursor:
                 rows = await cursor.fetchall()
         else:
-            async with conn.execute("""
-                SELECT * FROM orders 
+            async with conn.execute(f"""
+                SELECT {', '.join(columns)} FROM orders 
                 WHERE telegram_id = ?
                 ORDER BY created_at DESC
             """, (telegram_id,)) as cursor:
                 rows = await cursor.fetchall()
-    
-    # Получаем названия колонок
-    columns = ['id', 'telegram_id', 'order_id', 'market_id', 'market_title', 
-               'token_id', 'token_name', 'side', 'current_price', 'target_price',
-               'offset_ticks', 'offset_cents', 'amount', 'status', 'created_at']
     
     orders = []
     for row in rows:
@@ -251,20 +251,20 @@ async def get_order_by_id(order_id: str) -> Optional[dict]:
     Returns:
         dict: Словарь с данными ордера или None, если ордер не найден
     """
+    # Явно указываем колонки в правильном порядке
+    columns = ['id', 'telegram_id', 'order_id', 'market_id', 'market_title', 
+               'token_id', 'token_name', 'side', 'current_price', 'target_price',
+               'offset_ticks', 'offset_cents', 'amount', 'status', 'reposition_threshold_cents', 'created_at']
+    
     async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("""
-            SELECT * FROM orders 
+        async with conn.execute(f"""
+            SELECT {', '.join(columns)} FROM orders 
             WHERE order_id = ?
         """, (order_id,)) as cursor:
             row = await cursor.fetchone()
     
     if not row:
         return None
-    
-    # Получаем названия колонок
-    columns = ['id', 'telegram_id', 'order_id', 'market_id', 'market_title', 
-               'token_id', 'token_name', 'side', 'current_price', 'target_price',
-               'offset_ticks', 'offset_cents', 'amount', 'status', 'created_at']
     
     order_dict = dict(zip(columns, row))
     return order_dict
