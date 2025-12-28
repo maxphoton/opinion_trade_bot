@@ -76,6 +76,27 @@ async def init_database():
             CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)
         """)
         
+        # Таблица инвайтов
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invite TEXT NOT NULL UNIQUE,
+                telegram_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                used_at TIMESTAMP,
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+            )
+        """)
+        
+        # Создаем индексы для быстрого поиска
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invites_invite ON invites(invite)
+        """)
+        
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invites_telegram_id ON invites(telegram_id)
+        """)
+        
         # Добавляем поле reposition_threshold_cents если его нет (миграция)
         try:
             await conn.execute("""

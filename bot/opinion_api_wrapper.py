@@ -67,6 +67,7 @@
 
 import asyncio
 import logging
+import traceback
 from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -153,7 +154,6 @@ async def get_my_orders(
         
     except Exception as e:
         logger.error(f"Исключение при получении ордеров из API: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return []
 
@@ -203,7 +203,6 @@ async def get_order_by_id(client, order_id: str) -> Optional[Any]:
         
     except Exception as e:
         logger.error(f"Исключение при получении ордера из API: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return None
 

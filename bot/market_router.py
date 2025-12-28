@@ -959,8 +959,10 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     
     # Send instruction message
-    await callback.message.answer("Use the /make_market command to start a new farm.")
-
+    await callback.message.answer(
+        """Use the /make_market command to start a new farm.
+Use the /orders command to manage your orders."""
+    )
 
 @market_router.message(MarketOrderStates.waiting_reposition_threshold)
 async def process_reposition_threshold(message: Message, state: FSMContext):

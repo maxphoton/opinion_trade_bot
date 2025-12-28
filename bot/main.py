@@ -25,11 +25,14 @@ from database import (
     get_user,
     export_all_tables_to_zip
 )
+from invites import get_unused_invites, get_invites_statistics
 from spam_protection import AntiSpamMiddleware
 from orders_dialog import orders_dialog, OrdersSG
 from client_factory import setup_proxy
 from sync_orders import async_sync_all_orders
 from logger_config import setup_logger
+from start_router import start_router
+from market_router import market_router
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -44,13 +47,6 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
-
-# ============================================================================
-# Импорт routers
-# ============================================================================
-
-from start_router import start_router
-from market_router import market_router
 
 
 # ============================================================================
@@ -83,6 +79,44 @@ async def cmd_get_db(message: Message):
     except Exception as e:
         logger.error(f"Ошибка экспорта базы данных: {e}")
         await message.answer(f"""❌ Error exporting database: {e}""")
+
+
+@router.message(Command("get_invites"))
+async def cmd_get_invites(message: Message):
+    """Обработчик команды /get_invites - получение 10 неиспользованных инвайтов (только для администратора)."""
+    # Проверяем права администратора
+    if message.from_user.id != settings.admin_telegram_id:
+        return
+    
+    try:
+        # Получаем статистику
+        stats = await get_invites_statistics()
+        
+        # Получаем 10 неиспользованных инвайтов (создаст новые если нужно)
+        invites = await get_unused_invites(10)
+        
+        # Формируем сообщение со статистикой и инвайтами
+        stats_text = f"""📊 <b>Invites Statistics:</b>
+• Total: {stats['total']}
+• Used: {stats['used']}
+• Unused: {stats['unused']}
+
+📋 <b>10 Unused Invites (ID - Code):</b>
+"""
+        
+        invites_list = []
+        for invite in invites:
+            invites_list.append(f"{invite['id']} - <code>{invite['invite']}</code>")
+        
+        invites_text = "\n".join(invites_list)
+        
+        full_message = stats_text + invites_text
+        
+        await message.answer(full_message)
+        logger.info(f"Администратор {message.from_user.id} получил список инвайтов")
+    except Exception as e:
+        logger.error(f"Ошибка получения инвайтов: {e}")
+        await message.answer(f"""❌ Error getting invites: {e}""")
 
 
 @router.message(Command("orders"))

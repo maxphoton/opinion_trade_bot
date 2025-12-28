@@ -4,6 +4,7 @@ Handles the complete registration process from wallet address to API key.
 """
 
 import logging
+import re
 from pathlib import Path
 
 from aiogram import Router
@@ -13,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, FSInputFile
 
 from database import get_user, save_user
+from invites import is_invite_valid, use_invite
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 class RegistrationStates(StatesGroup):
     """States for the registration process."""
+    waiting_invite = State()
     waiting_wallet = State()
     waiting_private_key = State()
     waiting_api_key = State()
@@ -47,6 +50,44 @@ Use the /make_market command to place an order."""
         )
         return
     
+    # Запрашиваем инвайт
+    await message.answer(
+        """🔐 Bot Registration
+
+To register, you need an invite code.
+
+Please enter your invite code:"""
+    )
+    await state.set_state(RegistrationStates.waiting_invite)
+
+
+@start_router.message(RegistrationStates.waiting_invite)
+async def process_invite(message: Message, state: FSMContext):
+    """Handles invite code input."""
+    invite_code = message.text.strip()
+    
+    # Проверяем формат (латиница и цифры)
+    if not re.match(r'^[A-Za-z0-9]{10}$', invite_code):
+        await message.answer(
+            """❌ Invalid invite code format. 
+            
+Please try again:"""
+        )
+        return
+    
+    # Проверяем валидность инвайта (но не используем его пока)
+    if not await is_invite_valid(invite_code):
+        await message.answer(
+            """❌ Invalid or already used invite code.
+
+Please enter a valid invite code:"""
+        )
+        return
+    
+    # Сохраняем инвайт в state (будем использовать в конце регистрации)
+    await state.update_data(invite_code=invite_code)
+    
+    # Переходим к следующему шагу
     # Send image with caption in one message
     photo_path = Path(__file__).parent.parent / "files" / "spot_addr.png"
     
@@ -101,10 +142,24 @@ async def process_api_key(message: Message, state: FSMContext):
         return
     
     data = await state.get_data()
+    telegram_id = message.from_user.id
+    
+    # Используем инвайт перед сохранением пользователя
+    invite_code = data.get('invite_code')
+    if invite_code:
+        # Используем инвайт (атомарно, с проверкой валидности внутри)
+        if not await use_invite(invite_code, telegram_id):
+            await state.clear()
+            await message.answer(
+                """❌ Registration failed: The invite code could not be used.
+
+Please start registration again with /start using a valid invite code."""
+            )
+            return
     
     # Save user to database
     await save_user(
-        telegram_id=message.from_user.id,
+        telegram_id=telegram_id,
         username=message.from_user.username,
         wallet_address=data['wallet_address'],
         private_key=data['private_key'],

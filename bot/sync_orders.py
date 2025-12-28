@@ -94,7 +94,7 @@ KEY FEATURES:
 - All blocking operations (API calls) wrapped in asyncio.to_thread() for non-blocking execution
 - List consistency check: validates that cancellation and placement lists have same length
 - Order identification: uses index matching between place_results and orders_to_place to identify failed orders
-- Uses status constants (ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED) from opinion_api for consistency
+- Uses status constants (ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED) from opinion_api_wrapper for consistency
 
 ARCHITECTURE:
 ============
@@ -118,14 +118,16 @@ ARCHITECTURE:
 import asyncio
 import logging
 import time
+import traceback
 from typing import List, Dict, Optional, Tuple
 
 from database import get_user, get_user_orders, get_all_users, update_order_in_db, update_order_status
 from client_factory import create_client, setup_proxy
-from opinion_api import get_order_by_id, ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED
+from opinion_api_wrapper import get_order_by_id, ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED
 from config import TICK_SIZE
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
+from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
 from logger_config import setup_logger
 
 # Настройка логирования
@@ -499,8 +501,6 @@ def place_orders_batch(client, orders_params: List[Dict]) -> List:
         Список результатов размещения
     """
     try:
-        from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
-        
         client.enable_trading()
         
         # Преобразуем параметры в PlaceOrderDataInput
@@ -564,7 +564,6 @@ def place_orders_batch(client, orders_params: List[Dict]) -> List:
         
     except Exception as e:
         logger.error(f"Ошибка при batch размещении ордеров: {e}")
-        import traceback
         traceback.print_exc()
         return []
 
@@ -761,7 +760,6 @@ Your order has been successfully filled! Please check the market and consider pl
         logger.info(f"Отправлено уведомление об исполнении ордера {order_id} пользователю {telegram_id}")
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления пользователю {telegram_id}: {e}")
-        import traceback
         logger.error(traceback.format_exc())
 
 
