@@ -118,7 +118,6 @@ ARCHITECTURE:
 import asyncio
 import logging
 import time
-from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
 from database import get_user, get_user_orders, get_all_users, update_order_in_db, update_order_status
@@ -127,37 +126,10 @@ from opinion_api import get_order_by_id, ORDER_STATUS_FINISHED, ORDER_STATUS_CAN
 from config import TICK_SIZE
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
+from logger_config import setup_logger
 
 # Настройка логирования
-# Создаем папку logs, если её нет
-logs_dir = Path(__file__).parent.parent / "logs"
-logs_dir.mkdir(exist_ok=True)
-
-# Настраиваем логгер для синхронизации ордеров
-logger = logging.getLogger("sync_orders")
-logger.setLevel(logging.INFO)
-
-# Удаляем существующие обработчики, чтобы не дублировать логи
-logger.handlers.clear()
-
-# Формат логов
-log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-# Обработчик для записи в файл (режим append - всегда добавляет в конец)
-log_file = logs_dir / "sync_orders.log"
-file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(log_format)
-logger.addHandler(file_handler)
-
-# Обработчик для консоли (чтобы видеть логи в терминале)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(log_format)
-logger.addHandler(console_handler)
-
-# Предотвращаем распространение логов на корневой логгер
-logger.propagate = False
+logger = setup_logger("sync_orders", "sync_orders.log")
 
 # Настраиваем прокси
 setup_proxy()

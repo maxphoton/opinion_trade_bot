@@ -8,7 +8,6 @@
 """
 
 import asyncio
-import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
@@ -30,16 +29,13 @@ from spam_protection import AntiSpamMiddleware
 from orders_dialog import orders_dialog, OrdersSG
 from client_factory import setup_proxy
 from sync_orders import async_sync_all_orders
+from logger_config import setup_logger
 
 # Загружаем переменные окружения
 load_dotenv()
 
 # Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger("bot", "bot.log")
 
 # Инициализация бота и диспетчера
 bot = Bot(
