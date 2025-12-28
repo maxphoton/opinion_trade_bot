@@ -70,12 +70,16 @@ import logging
 import traceback
 from typing import List, Optional, Dict, Any
 
-logger = logging.getLogger(__name__)
+from logger_config import setup_logger
+
+# Настройка логирования: используем тот же логгер, что и sync_orders,
+# так как opinion_api_wrapper используется в основном из sync_orders
+logger = setup_logger("opinion_api_wrapper", "sync_orders.log")
 
 # Константы для статусов ордеров (числовые коды из API)
-ORDER_STATUS_PENDING = "1"      # Открытый/активный ордер (status_enum='Pending')
-ORDER_STATUS_FINISHED = "2"     # Исполненный ордер (status_enum='Finished', соответствует 'filled')
-ORDER_STATUS_CANCELED = "3"     # Отмененный ордер (status_enum='Canceled', соответствует 'cancelled')
+ORDER_STATUS_PENDING = "1"      # Открытый/активный ордер (status_enum='Pending', соответствует 'pending')
+ORDER_STATUS_FINISHED = "2"     # Исполненный ордер (status_enum='Finished', соответствует 'finished')
+ORDER_STATUS_CANCELED = "3"     # Отмененный ордер (status_enum='Canceled', соответствует 'canceled')
 
 
 async def get_my_orders(
@@ -92,9 +96,9 @@ async def get_my_orders(
         client: Клиент Opinion SDK
         market_id: ID рынка для фильтрации (по умолчанию 0 = все рынки)
         status: Фильтр по статусу ордера (строка с числовым кодом статуса):
-            - ORDER_STATUS_PENDING ("1") → Pending (открытый/активный ордер, status_enum='Pending')
-            - ORDER_STATUS_FINISHED ("2") → Finished (исполненный ордер, status_enum='Finished', соответствует 'filled')
-            - ORDER_STATUS_CANCELED ("3") → Canceled (отмененный ордер, status_enum='Canceled', соответствует 'cancelled')
+            - ORDER_STATUS_PENDING ("1") → Pending (открытый/активный ордер, status_enum='Pending', соответствует 'pending')
+            - ORDER_STATUS_FINISHED ("2") → Finished (исполненный ордер, status_enum='Finished', соответствует 'finished')
+            - ORDER_STATUS_CANCELED ("3") → Canceled (отмененный ордер, status_enum='Canceled', соответствует 'canceled')
             - "" (пустая строка) → все статусы
         limit: Количество ордеров на странице (по умолчанию 10).
                ВАЖНО: Если передавать только limit без page (или page=1), 
@@ -111,9 +115,9 @@ async def get_my_orders(
     
     Note:
         Маппинг статусов из API:
-        - status=ORDER_STATUS_PENDING (1), status_enum='Pending' → открытый/активный ордер
-        - status=ORDER_STATUS_FINISHED (2), status_enum='Finished' → исполненный ордер (filled)
-        - status=ORDER_STATUS_CANCELED (3), status_enum='Canceled' → отмененный ордер (cancelled)
+        - status=ORDER_STATUS_PENDING (1), status_enum='Pending' → открытый/активный ордер (pending)
+        - status=ORDER_STATUS_FINISHED (2), status_enum='Finished' → исполненный ордер (finished)
+        - status=ORDER_STATUS_CANCELED (3), status_enum='Canceled' → отмененный ордер (canceled)
     """
     try:
         # Формируем параметры для запроса

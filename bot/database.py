@@ -9,6 +9,7 @@
 """
 
 import csv
+import hashlib
 import io
 import logging
 import zipfile
@@ -59,7 +60,7 @@ async def init_database():
                 offset_ticks INTEGER NOT NULL,
                 offset_cents REAL NOT NULL,
                 amount REAL NOT NULL,
-                status TEXT DEFAULT 'active',
+                status TEXT DEFAULT 'pending',
                 reposition_threshold_cents REAL DEFAULT 0.5,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
@@ -111,6 +112,57 @@ async def init_database():
         
         await conn.commit()
     logger.info("База данных инициализирована")
+    
+    # Выполняем миграцию статусов ордеров
+    await migrate_order_statuses()
+
+
+async def migrate_order_statuses():
+    """
+    Миграция статусов ордеров: обновляет старые статусы на новые.
+    active -> pending
+    filled -> finished
+    cancelled -> canceled
+    
+    Также обновляет DEFAULT значение в схеме таблицы, если оно старое.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Проверяем, существует ли таблица orders
+        cursor = await conn.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='orders'
+        """)
+        table_exists = await cursor.fetchone()
+        
+        if not table_exists:
+            # Таблица не существует, миграция не нужна
+            return
+        
+        # Обновляем статусы в существующих записях
+        cursor = await conn.execute("""
+            UPDATE orders 
+            SET status = CASE 
+                WHEN status = 'active' THEN 'pending'
+                WHEN status = 'filled' THEN 'finished'
+                WHEN status = 'cancelled' THEN 'canceled'
+                ELSE status
+            END
+            WHERE status IN ('active', 'filled', 'cancelled')
+        """)
+        rows_affected = cursor.rowcount
+        await conn.commit()
+        
+        if rows_affected > 0:
+            logger.info(f"Миграция статусов ордеров завершена: обновлено {rows_affected} записей")
+        else:
+            logger.debug("Миграция статусов ордеров: нет записей для обновления")
+        
+        # Примечание: В SQLite нельзя изменить DEFAULT значение существующей колонки.
+        # Однако DEFAULT не используется на практике, так как:
+        # 1. В функции save_order() статус всегда передается явно (есть дефолт в Python: 'pending')
+        # 2. В market_router.py статус передается явно: status='pending'
+        # 3. В INSERT запросе статус всегда указан в VALUES
+        # Поэтому даже если в схеме таблицы остался старый DEFAULT 'active', это не влияет на работу.
 
 
 async def get_user(telegram_id: int) -> Optional[dict]:
@@ -187,7 +239,7 @@ async def save_user(telegram_id: int, username: Optional[str], wallet_address: s
 async def save_order(telegram_id: int, order_id: str, market_id: int, market_title: Optional[str],
                token_id: str, token_name: str, side: str, current_price: float,
                target_price: float, offset_ticks: int, offset_cents: float, amount: float,
-               status: str = 'active', reposition_threshold_cents: float = 0.5):
+               status: str = 'pending', reposition_threshold_cents: float = 0.5):
     """
     Сохраняет информацию об ордере в базу данных.
     
@@ -204,7 +256,7 @@ async def save_order(telegram_id: int, order_id: str, market_id: int, market_tit
         offset_ticks: Отступ в тиках
         offset_cents: Отступ в центах
         amount: Сумма ордера в USDT
-        status: Статус ордера (active/cancelled/filled)
+        status: Статус ордера (pending/finished/canceled)
         reposition_threshold_cents: Порог отклонения в центах для перестановки ордера
     """
     async with aiosqlite.connect(DB_PATH) as conn:
@@ -228,7 +280,7 @@ async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> lis
     
     Args:
         telegram_id: ID пользователя в Telegram
-        status: Фильтр по статусу (active/cancelled/filled). Если None, возвращает все ордера.
+        status: Фильтр по статусу (pending/finished/canceled). Если None, возвращает все ордера.
     
     Returns:
         list: Список словарей с данными ордеров
@@ -297,7 +349,7 @@ async def update_order_status(order_id: str, status: str):
     
     Args:
         order_id: ID ордера на бирже
-        status: Новый статус (active/cancelled/filled)
+        status: Новый статус (pending/finished/canceled)
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("""
@@ -337,6 +389,84 @@ async def get_all_users():
         async with conn.execute("SELECT telegram_id FROM users") as cursor:
             rows = await cursor.fetchall()
     return [row[0] for row in rows]
+
+
+async def check_wallet_address_exists(wallet_address: str) -> bool:
+    """
+    Проверяет, существует ли уже пользователь с таким wallet_address.
+    
+    Args:
+        wallet_address: Адрес кошелька для проверки
+    
+    Returns:
+        bool: True если wallet_address уже существует, False если уникален
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT wallet_address, wallet_nonce FROM users") as cursor:
+            rows = await cursor.fetchall()
+    
+    for row in rows:
+        try:
+            existing_wallet = decrypt(row[0], row[1])
+            if existing_wallet == wallet_address:
+                return True
+        except Exception as e:
+            logger.warning(f"Ошибка при расшифровке wallet_address для проверки уникальности: {e}")
+            continue
+    
+    return False
+
+
+async def check_private_key_exists(private_key: str) -> bool:
+    """
+    Проверяет, существует ли уже пользователь с таким private_key.
+    
+    Args:
+        private_key: Приватный ключ для проверки
+    
+    Returns:
+        bool: True если private_key уже существует, False если уникален
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT private_key_cipher, private_key_nonce FROM users") as cursor:
+            rows = await cursor.fetchall()
+    
+    for row in rows:
+        try:
+            existing_private_key = decrypt(row[0], row[1])
+            if existing_private_key == private_key:
+                return True
+        except Exception as e:
+            logger.warning(f"Ошибка при расшифровке private_key для проверки уникальности: {e}")
+            continue
+    
+    return False
+
+
+async def check_api_key_exists(api_key: str) -> bool:
+    """
+    Проверяет, существует ли уже пользователь с таким api_key.
+    
+    Args:
+        api_key: API ключ для проверки
+    
+    Returns:
+        bool: True если api_key уже существует, False если уникален
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT api_key_cipher, api_key_nonce FROM users") as cursor:
+            rows = await cursor.fetchall()
+    
+    for row in rows:
+        try:
+            existing_api_key = decrypt(row[0], row[1])
+            if existing_api_key == api_key:
+                return True
+        except Exception as e:
+            logger.warning(f"Ошибка при расшифровке api_key для проверки уникальности: {e}")
+            continue
+    
+    return False
 
 
 async def export_table_to_csv(conn: aiosqlite.Connection, table_name: str) -> str:

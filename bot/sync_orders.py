@@ -14,14 +14,14 @@ PROCESS OVERVIEW:
 2. ORDER STATUS CHECK (process_user_orders):
    For each active order from database:
    a. Checks order status via API (get_order_by_id):
-      - Compares database status ('active') with API status
-      - If status changed from 'active' to 'Finished' (filled):
-        * Updates database status to 'filled'
+      - Compares database status ('pending') with API status
+      - If status changed from 'pending' to 'Finished' (finished):
+        * Updates database status to 'finished'
         * Sends notification to user with order details from API (price, market link, etc.)
-        * Skips further processing (order is no longer active)
-      - If status changed from 'active' to 'Canceled' (cancelled):
-        * Updates database status to 'cancelled'
-        * Skips further processing (no notification sent for cancelled orders)
+        * Skips further processing (order is no longer pending)
+      - If status changed from 'pending' to 'Canceled' (canceled):
+        * Updates database status to 'canceled'
+        * Skips further processing (no notification sent for canceled orders)
       - If status check fails, continues with normal processing (graceful degradation)
 
 3. ORDER PROCESSING (process_user_orders):
@@ -268,7 +268,7 @@ async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], Li
         return orders_to_cancel, orders_to_place, price_change_notifications
     
     # Получаем активные ордера из БД
-    db_orders = await get_user_orders(telegram_id, status="active")
+    db_orders = await get_user_orders(telegram_id, status="pending")
     
     if not db_orders:
         logger.info(f"У пользователя {telegram_id} нет активных ордеров")
@@ -305,12 +305,12 @@ async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], Li
                     # Получаем числовой статус из API и приводим к строке
                     api_status = str(getattr(api_order, 'status', None))
                     
-                    # Если статус в БД был 'active', а в API стал 'Finished' (filled)
-                    if db_status == 'active' and api_status == ORDER_STATUS_FINISHED:
-                        logger.info(f"Ордер {order_id} был активным, теперь заполнен. Обновляем БД и отправляем уведомление.")
+                    # Если статус в БД был 'pending', а в API стал 'Finished' (finished)
+                    if db_status == 'pending' and api_status == ORDER_STATUS_FINISHED:
+                        logger.info(f"Ордер {order_id} был pending, теперь finished. Обновляем БД и отправляем уведомление.")
                         
                         # Обновляем статус в БД
-                        await update_order_status(order_id, 'filled')
+                        await update_order_status(order_id, 'finished')
                         
                         # Отправляем уведомление пользователю
                         if bot:
@@ -319,12 +319,12 @@ async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], Li
                         # Пропускаем дальнейшую обработку этого ордера
                         continue
                     
-                    # Если статус в БД был 'active', а в API стал 'Canceled' (cancelled)
-                    elif db_status == 'active' and api_status == ORDER_STATUS_CANCELED:
-                        logger.info(f"Ордер {order_id} был активным, теперь отменен. Обновляем БД.")
+                    # Если статус в БД был 'pending', а в API стал 'Canceled' (canceled)
+                    elif db_status == 'pending' and api_status == ORDER_STATUS_CANCELED:
+                        logger.info(f"Ордер {order_id} был pending, теперь canceled. Обновляем БД.")
                         
                         # Обновляем статус в БД
-                        await update_order_status(order_id, 'cancelled')
+                        await update_order_status(order_id, 'canceled')
                         
                         # Пропускаем дальнейшую обработку этого ордера
                         continue

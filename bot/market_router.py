@@ -961,7 +961,8 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     # Send instruction message
     await callback.message.answer(
         """Use the /make_market command to start a new farm.
-Use the /orders command to manage your orders."""
+Use the /orders command to manage your orders.
+Use the /support command to contact administrator."""
     )
 
 @market_router.message(MarketOrderStates.waiting_reposition_threshold)
@@ -1099,7 +1100,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                 offset_ticks=offset_ticks,
                 offset_cents=offset_cents,
                 amount=amount,
-                status='active',
+                status='pending',
                 reposition_threshold_cents=reposition_threshold_cents
             )
             logger.info(f"Order {order_id} successfully saved to DB for user {telegram_id}")

@@ -49,9 +49,9 @@ async def get_orders_list_data(dialog_manager: DialogManager, **kwargs):
     all_orders = await get_user_orders(telegram_id)
     total = len(all_orders)
     
-    # Проверяем, есть ли активные ордера (не отмененные и не исполненные)
+    # Проверяем, есть ли pending ордера (не отмененные и не исполненные)
     has_active_orders = any(
-        order.get("status", "unknown") == "active" 
+        order.get("status") == "pending" 
         for order in all_orders
     )
     
@@ -84,6 +84,8 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
             target_price = order.get("target_price", 0)
             amount = order.get("amount", 0)
             status = order.get("status", "unknown")
+            # Нормализуем статус: приводим к нижнему регистру и убираем пробелы
+            status = str(status).lower().strip() if status else "unknown"
             reposition_threshold_cents = float(order.get("reposition_threshold_cents"))
             
             created_at = order.get("created_at")
@@ -93,9 +95,9 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
             
             # Статус с эмодзи
             status_emoji = {
-                "active": "🟢",
-                "cancelled": "🔴",
-                "filled": "✅"
+                "pending": "⏳",
+                "canceled": "🔴",
+                "finished": "✅"
             }.get(status, "❓")
             
             # Направление с эмодзи
@@ -105,7 +107,7 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
             target_price_cents = target_price * 100
             price_str = f"{target_price_cents:.2f}".rstrip('0').rstrip('.')
             
-            text += f"""<b>{i}.</b> {status_emoji} <code>{order_id}</code>
+            text += f"""<b>{i}.</b> {status_emoji} {status.upper()} <code>{order_id}</code>
    {side_emoji} {side} {token_name} | {price_str}¢ | {amount} USDT
    📊 Market ID: {market_id} | {market_title[:25]}...
    ⚙️ Reposition threshold: {reposition_threshold_cents:.2f}¢
@@ -172,7 +174,8 @@ async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManage
     """Обработчик кнопки Exit - отправляет сообщение и закрывает диалог."""
     await callback.message.answer(
         """Use the /make_market command to start a new farm.
-Use the /orders command to manage your orders."""
+Use the /orders command to manage your orders.
+Use the /support command to contact administrator."""
     )
     await manager.done()
     await callback.answer()
@@ -225,7 +228,7 @@ async def cancel_order_input_handler(message: Message, message_input: MessageInp
         
         if result.errno == 0:
             # Обновляем статус в БД
-            await update_order_status(order_id, "cancelled")
+            await update_order_status(order_id, "canceled")
             await message.answer(f"✅ Order <code>{order_id}</code> successfully cancelled.")
             logger.info(f"User {telegram_id} cancelled order {order_id}")
         else:
@@ -340,6 +343,8 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
         target_price = order.get("target_price", 0)
         amount = order.get("amount", 0)
         status = order.get("status", "unknown")
+        # Нормализуем статус: приводим к нижнему регистру и убираем пробелы
+        status = str(status).lower().strip() if status else "unknown"
         reposition_threshold_cents = float(order.get("reposition_threshold_cents"))
         
         created_at = order.get("created_at")
@@ -349,9 +354,9 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
         
         # Статус с эмодзи
         status_emoji = {
-            "active": "🟢",
-            "cancelled": "🔴",
-            "filled": "✅"
+            "pending": "⏳",
+            "canceled": "🔴",
+            "finished": "✅"
         }.get(status, "❓")
         
         # Направление с эмодзи
@@ -361,7 +366,7 @@ Page {current_page + 1} of {(total + items_per_page - 1) // items_per_page if to
         target_price_cents = target_price * 100
         price_str = f"{target_price_cents:.2f}".rstrip('0').rstrip('.')
         
-        text += f"""<b>{i}.</b> {status_emoji} <code>{order_id}</code>
+        text += f"""<b>{i}.</b> {status_emoji} {status.upper()} <code>{order_id}</code>
    {side_emoji} {side} {token_name} | {price_str}¢ | {amount} USDT
    📊 Market ID: {market_id} | {market_title[:25]}...
    ⚙️ Reposition threshold: {reposition_threshold_cents:.2f}¢
@@ -410,7 +415,10 @@ async def on_search_results_back(callback: CallbackQuery, button: Button, manage
 orders_search_window = Window(
     Const("Enter search query:\n(order_id, market_id, market_title, token_name, side)"),
     MessageInput(orders_search_handler),
-    Back(Const("◀️ Back")),
+    Group(
+        Back(Const("◀️ Back")),
+        Button(Const("🚪 Exit"), id="exit", on_click=on_exit),
+    ),
     state=OrdersSG.orders_search
 )
 
@@ -421,7 +429,10 @@ orders_search_results_window = Window(
         Button(Const("◀️ Back"), id="prev_page", on_click=on_search_results_prev, when="has_prev"),
         Button(Const("Next ▶️"), id="next_page", on_click=on_search_results_next, when="has_next"),
     ),
-    Back(Const("◀️ Back to list")),
+    Group(
+        Back(Const("◀️ Back to list")),
+        Button(Const("🚪 Exit"), id="exit", on_click=on_exit),
+    ),
     state=OrdersSG.orders_search_results,
     getter=get_search_results_data
 )

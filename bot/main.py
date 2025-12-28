@@ -230,7 +230,8 @@ async def handle_unknown_message(message: Message):
     """
     await message.answer(
         """Use the /make_market command to start a new farm.
-Use the /orders command to manage your orders."""
+Use the /orders command to manage your orders.
+Use the /support command to contact administrator."""
     )
 
 
