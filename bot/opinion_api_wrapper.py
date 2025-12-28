@@ -206,7 +206,18 @@ async def get_order_by_id(client, order_id: str) -> Optional[Any]:
         return order
         
     except Exception as e:
-        logger.error(f"Исключение при получении ордера из API: {e}")
-        logger.error(traceback.format_exc())
+        # Определяем тип ошибки для правильного уровня логирования
+        error_str = str(e)
+        is_timeout = "504" in error_str or "Gateway Time-out" in error_str or "timeout" in error_str.lower()
+        
+        if is_timeout:
+            # Таймауты - это временные проблемы API, логируем как WARNING
+            logger.warning(f"Таймаут при получении ордера из API (order_id={order_id}): {error_str}")
+            logger.debug(f"Traceback для таймаута:\n{traceback.format_exc()}")
+        else:
+            # Другие ошибки - логируем как ERROR
+            logger.error(f"Исключение при получении ордера из API (order_id={order_id}): {e}")
+            logger.error(traceback.format_exc())
+        
         return None
 

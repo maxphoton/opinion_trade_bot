@@ -304,7 +304,9 @@ async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], Li
                 if api_order:
                     # Получаем числовой статус из API и приводим к строке
                     api_status = str(getattr(api_order, 'status', None))
-                    
+
+                    logger.info(f"Ордер {order_id} статус в API: {api_status} статус в БД: {db_status}")
+
                     # Если статус в БД был 'pending', а в API стал 'Finished' (finished)
                     if db_status == 'pending' and api_status == ORDER_STATUS_FINISHED:
                         logger.info(f"Ордер {order_id} был pending, теперь finished. Обновляем БД и отправляем уведомление.")
@@ -329,8 +331,16 @@ async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], Li
                         # Пропускаем дальнейшую обработку этого ордера
                         continue
             except Exception as e:
-                logger.warning(f"Ошибка при проверке статуса ордера {order_id} через API: {e}")
-                # Продолжаем обработку, если не удалось проверить статус
+                # Логируем только краткое сообщение, детали уже залогированы в opinion_api_wrapper
+                error_str = str(e)
+                is_timeout = "504" in error_str or "Gateway Time-out" in error_str or "timeout" in error_str.lower()
+                
+                if is_timeout:
+                    logger.info(f"⏱️ Таймаут API при проверке статуса ордера {order_id}, продолжаем обработку без проверки статуса")
+                else:
+                    logger.warning(f"Ошибка при проверке статуса ордера {order_id} через API: {e}")
+                
+                # Продолжаем обработку, если не удалось проверить статус (graceful degradation)
             
             # Получаем текущую цену рынка
             new_current_price = get_current_market_price(client, token_id, side)
