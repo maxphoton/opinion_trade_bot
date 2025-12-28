@@ -8,11 +8,14 @@
 """
 
 import asyncio
+import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, BufferedInputFile
 from aiogram_dialog import DialogManager, StartMode, setup_dialogs
@@ -30,7 +33,7 @@ from spam_protection import AntiSpamMiddleware
 from orders_dialog import orders_dialog, OrdersSG
 from client_factory import setup_proxy
 from sync_orders import async_sync_all_orders
-from logger_config import setup_logger
+from logger_config import setup_root_logger
 from start_router import start_router
 from market_router import market_router
 
@@ -38,7 +41,9 @@ from market_router import market_router
 load_dotenv()
 
 # Настройка логирования
-logger = setup_logger("bot", "bot.log")
+# Настраиваем корневой логгер - все модули будут логировать в logs/bot.log
+setup_root_logger("bot.log")
+logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
 bot = Bot(
@@ -47,6 +52,15 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
+
+
+# ============================================================================
+# States for support command
+# ============================================================================
+
+class SupportStates(StatesGroup):
+    """States for support message."""
+    waiting_support_message = State()
 
 
 # ============================================================================
@@ -136,6 +150,72 @@ async def cmd_orders(message: Message, dialog_manager: DialogManager):
     # Запускаем диалог с передачей telegram_id
     # Пагинация будет сброшена автоматически при запуске диалога
     await dialog_manager.start(OrdersSG.orders_list, data={"telegram_id": telegram_id}, mode=StartMode.RESET_STACK)
+
+
+@router.message(Command("support"))
+async def cmd_support(message: Message, state: FSMContext):
+    """Обработчик команды /support - отправка сообщения в поддержку."""
+    await message.answer(
+        """💬 <b>Support</b>
+
+Please describe your question or issue. You can send text or a photo with a caption.
+
+Your message will be forwarded to the administrator."""
+    )
+    await state.set_state(SupportStates.waiting_support_message)
+
+
+@router.message(SupportStates.waiting_support_message)
+async def process_support_message(message: Message, state: FSMContext):
+    """Обработчик сообщения поддержки - пересылает админу."""
+    # Проверяем, что админ указан
+    if not settings.admin_telegram_id or settings.admin_telegram_id == 0:
+        await message.answer(
+            """❌ Support is not available. Administrator is not configured."""
+        )
+        await state.clear()
+        return
+    
+    try:
+        # Формируем информацию о пользователе
+        user_info = f"<b>Support message from:</b>\n"
+        user_info += f"• User ID: <code>{message.from_user.id}</code>\n"
+        if message.from_user.username:
+            user_info += f"• Username: @{message.from_user.username}\n"
+        
+        # Если есть фото
+        if message.photo:
+            # Отправляем фото с подписью админу
+            caption = f"{user_info}\n{message.caption or ''}" if message.caption else user_info
+            await bot.send_photo(
+                chat_id=settings.admin_telegram_id,
+                photo=message.photo[-1].file_id,  # Берем фото наибольшего размера
+                caption=caption,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Отправляем текстовое сообщение админу
+            full_message = f"{user_info}\n\n<b>Message:</b>\n{message.text}"
+            await bot.send_message(
+                chat_id=settings.admin_telegram_id,
+                text=full_message,
+                parse_mode=ParseMode.HTML
+            )
+        
+        # Подтверждаем пользователю
+        await message.answer(
+            """✅ Your message has been sent to support. We will get back to you soon!"""
+        )
+        
+        logger.info(f"Support message from user {message.from_user.id} forwarded to admin")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения поддержки: {e}")
+        await message.answer(
+            """❌ Failed to send your message. Please try again later."""
+        )
+    finally:
+        await state.clear()
 
 
 # ============================================================================
