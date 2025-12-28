@@ -1,15 +1,83 @@
 """
 Обертка для работы с Opinion API.
 Функции для получения данных из API с правильной обработкой ответов.
+
+СТРУКТУРА ОБЪЕКТА ОРДЕРА:
+==========================
+Объект ордера, возвращаемый API, содержит следующие поля:
+
+Основные поля:
+- order_id (str): Уникальный идентификатор ордера
+- market_id (int): ID рынка
+- market_title (str): Название рынка
+- root_market_id (int): ID корневого рынка
+- root_market_title (str): Название корневого рынка
+
+Статус и состояние:
+- status (int): Числовой код статуса (1=Pending, 2=Finished, 3=Canceled)
+- status_enum (str): Строковое представление статуса ('Pending', 'Finished', 'Canceled')
+- created_at (int): Время создания ордера (Unix timestamp)
+- expires_at (int): Время истечения ордера (Unix timestamp, 0 если не истекает)
+
+Цена и количество:
+- price (str/float): Цена ордера (десятичное число в виде строки)
+- order_amount (str/float): Общая сумма ордера в USDT (десятичное число в виде строки)
+- order_shares (str/float): Количество акций в ордере (десятичное число в виде строки)
+- filled_amount (str/float): Исполненная сумма в USDT (десятичное число в виде строки)
+- filled_shares (str/float): Исполненное количество акций (десятичное число в виде строки)
+
+Направление и токен:
+- side (int): Направление ордера (1=Buy, 2=Sell)
+- side_enum (str): Строковое представление направления ('Buy', 'Sell')
+- outcome (str): Исход ('YES' или 'NO')
+- outcome_side (int): Числовой код исхода (1=YES, 2=NO)
+- outcome_side_enum (str): Строковое представление исхода ('Yes', 'No')
+
+Торговля:
+- trading_method (int): Метод торговли (2=Limit)
+- trading_method_enum (str): Строковое представление метода ('Limit')
+- trades (list): Список сделок по ордеру (обычно пустой список)
+
+Дополнительные поля:
+- quote_token (str): Адрес токена котировки (USDT контракт)
+- profit (str): Прибыль (может быть пустой строкой)
+
+Пример объекта ордера:
+{
+    'order_id': 'def73c87-e120-11f0-8edd-0a58a9feac02',
+    'market_id': 2119,
+    'market_title': '50+ bps increase',
+    'status': 3,
+    'status_enum': 'Canceled',
+    'side': 1,
+    'side_enum': 'Buy',
+    'price': '0.983000000000000000',
+    'order_amount': '1.999999999999999992',
+    'filled_amount': '0.000000000000000000',
+    'created_at': 1766619174,
+    'expires_at': 0,
+    'outcome': 'NO',
+    'outcome_side': 2,
+    'outcome_side_enum': 'No',
+    'trading_method': 2,
+    'trading_method_enum': 'Limit',
+    'trades': []
+}
 """
 
+import asyncio
 import logging
 from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# Константы для статусов ордеров (числовые коды из API)
+ORDER_STATUS_PENDING = "1"      # Открытый/активный ордер (status_enum='Pending')
+ORDER_STATUS_FINISHED = "2"     # Исполненный ордер (status_enum='Finished', соответствует 'filled')
+ORDER_STATUS_CANCELED = "3"     # Отмененный ордер (status_enum='Canceled', соответствует 'cancelled')
 
-def get_my_orders(
+
+async def get_my_orders(
     client,
     market_id: int = 0,
     status: str = "",
@@ -17,15 +85,15 @@ def get_my_orders(
     page: int = 1
 ) -> List[Any]:
     """
-    Получает ордеры пользователя из API.
+    Получает ордеры пользователя из API (асинхронная версия).
     
     Args:
         client: Клиент Opinion SDK
         market_id: ID рынка для фильтрации (по умолчанию 0 = все рынки)
         status: Фильтр по статусу ордера (строка с числовым кодом статуса):
-            - "1" → Pending (открытый/активный ордер, status_enum='Pending')
-            - "2" → Finished (исполненный ордер, status_enum='Finished', соответствует 'filled')
-            - "3" → Canceled (отмененный ордер, status_enum='Canceled', соответствует 'cancelled')
+            - ORDER_STATUS_PENDING ("1") → Pending (открытый/активный ордер, status_enum='Pending')
+            - ORDER_STATUS_FINISHED ("2") → Finished (исполненный ордер, status_enum='Finished', соответствует 'filled')
+            - ORDER_STATUS_CANCELED ("3") → Canceled (отмененный ордер, status_enum='Canceled', соответствует 'cancelled')
             - "" (пустая строка) → все статусы
         limit: Количество ордеров на странице (по умолчанию 10).
                ВАЖНО: Если передавать только limit без page (или page=1), 
@@ -42,9 +110,9 @@ def get_my_orders(
     
     Note:
         Маппинг статусов из API:
-        - status=1, status_enum='Pending' → открытый/активный ордер
-        - status=2, status_enum='Finished' → исполненный ордер (filled)
-        - status=3, status_enum='Canceled' → отмененный ордер (cancelled)
+        - status=ORDER_STATUS_PENDING (1), status_enum='Pending' → открытый/активный ордер
+        - status=ORDER_STATUS_FINISHED (2), status_enum='Finished' → исполненный ордер (filled)
+        - status=ORDER_STATUS_CANCELED (3), status_enum='Canceled' → отмененный ордер (cancelled)
     """
     try:
         # Формируем параметры для запроса
@@ -57,8 +125,8 @@ def get_my_orders(
         
         logger.info(f"Запрос ордеров из API: market_id={market_id}, status={status}, limit={limit}, page={page}")
         
-        # Вызываем API
-        response = client.get_my_orders(**params)
+        # Вызываем API в отдельном потоке, так как SDK синхронный
+        response = await asyncio.to_thread(client.get_my_orders, **params)
         
         logger.info(f"API Response: errno={response.errno}, errmsg={getattr(response, 'errmsg', 'N/A')}")
         
@@ -90,9 +158,9 @@ def get_my_orders(
         return []
 
 
-def get_order_by_id(client, order_id: str) -> Optional[Any]:
+async def get_order_by_id(client, order_id: str) -> Optional[Any]:
     """
-    Получает ордер по его ID из API.
+    Получает ордер по его ID из API (асинхронная версия).
     
     Args:
         client: Клиент Opinion SDK
@@ -107,8 +175,8 @@ def get_order_by_id(client, order_id: str) -> Optional[Any]:
     try:
         logger.info(f"Запрос ордера по ID из API: order_id={order_id}")
         
-        # Вызываем API
-        response = client.get_order_by_id(order_id=order_id)
+        # Вызываем API в отдельном потоке, так как SDK синхронный
+        response = await asyncio.to_thread(client.get_order_by_id, order_id=order_id)
         
         logger.info(f"API Response: errno={response.errno}, errmsg={getattr(response, 'errmsg', 'N/A')}")
         

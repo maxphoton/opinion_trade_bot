@@ -229,8 +229,11 @@ async def cancel_order_input_handler(message: Message, message_input: MessageInp
             await message.answer(f"✅ Order <code>{order_id}</code> successfully cancelled.")
             logger.info(f"User {telegram_id} cancelled order {order_id}")
         else:
-            await message.answer(f"❌ Failed to cancel order <code>{order_id}</code>. Error: {result.errno}")
-            logger.warning(f"Failed to cancel order {order_id} for user {telegram_id}: errno={result.errno}")
+            # Получаем текст ошибки, если доступен
+            errmsg = getattr(result, 'errmsg', 'Unknown error')
+            error_message = f"❌ Failed to cancel order <code>{order_id}</code>.\n\nError code: {result.errno}\nError message: {errmsg}"
+            await message.answer(error_message)
+            logger.warning(f"Failed to cancel order {order_id} for user {telegram_id}: errno={result.errno}, errmsg={errmsg}")
     except Exception as e:
         await message.answer(f"❌ Error cancelling order <code>{order_id}</code>: {str(e)}")
         logger.error(f"Error cancelling order {order_id} for user {telegram_id}: {e}")

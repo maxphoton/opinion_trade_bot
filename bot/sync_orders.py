@@ -11,8 +11,21 @@ PROCESS OVERVIEW:
    - Outputs final statistics (cancelled, placed, errors)
    - Each user is processed independently with their own API client
 
-2. ORDER PROCESSING (process_user_orders):
-   For each active order:
+2. ORDER STATUS CHECK (process_user_orders):
+   For each active order from database:
+   a. Checks order status via API (get_order_by_id):
+      - Compares database status ('active') with API status
+      - If status changed from 'active' to 'Finished' (filled):
+        * Updates database status to 'filled'
+        * Sends notification to user with order details from API (price, market link, etc.)
+        * Skips further processing (order is no longer active)
+      - If status changed from 'active' to 'Canceled' (cancelled):
+        * Updates database status to 'cancelled'
+        * Skips further processing (no notification sent for cancelled orders)
+      - If status check fails, continues with normal processing (graceful degradation)
+
+3. ORDER PROCESSING (process_user_orders):
+   For each active order (after status check):
    a. Gets current market price from orderbook:
       - For BUY orders: uses best_bid (highest bid price)
       - For SELL orders: uses best_ask (lowest ask price)
@@ -28,21 +41,21 @@ PROCESS OVERVIEW:
       * If change < threshold: skips repositioning (saves API calls and gas fees)
    e. Adds price change notification to list ONLY if order will be repositioned
    
-3. NOTIFICATIONS (sent immediately after order processing):
+4. NOTIFICATIONS (sent immediately after order processing):
    - Price change notifications are sent ONLY for orders that will be repositioned
    - Each notification indicates that the order will be repositioned
    - Includes: old/new current prices, old/new target prices, price change in cents,
      target price change in cents, offset, reposition threshold
    - Notifications sent BEFORE cancellation/placement to inform user immediately
 
-4. ORDER CANCELLATION:
+5. ORDER CANCELLATION:
    - Cancels old orders in batch via API (only orders that need repositioning)
    - BATCHES ARE FORMED PER USER: all orders for one user are in the same batch
    - Checks success via result_data.errno == 0 from API response (not just success flag)
    - Logs each cancellation with User ID and Market ID for debugging
    - If ANY order fails to cancel, skips placement for ALL orders (safety check)
 
-5. ORDER PLACEMENT:
+6. ORDER PLACEMENT:
    - Places new orders in batch ONLY if ALL old orders were successfully cancelled
    - BATCHES ARE FORMED PER USER: all orders for one user are in the same batch
    - Checks success via result_data.errno == 0 (not just success=True)
@@ -53,7 +66,7 @@ PROCESS OVERVIEW:
      * Notification includes old_order_id (cancelled), error code, and error message
      * Other orders in batch continue to be processed
 
-6. DATABASE UPDATE:
+7. DATABASE UPDATE:
    - Updates database ONLY for successfully placed orders (errno == 0)
    - Updates: order_id (old -> new), current_price, target_price
    - Sends success notification to user after database update
@@ -61,6 +74,10 @@ PROCESS OVERVIEW:
 
 KEY FEATURES:
 ============
+- Order status synchronization: Checks order status via API before processing
+  * Automatically updates database when orders are filled or cancelled externally
+  * Sends notifications for filled orders (with API data: price, market link, etc.)
+  * Silently updates cancelled orders without notifications
 - Uses offset_ticks from database (does not recalculate delta, preserves original offset)
 - Uses reposition_threshold_cents from database (user-configurable per order, default 0.5 cents)
 - Skips repositioning when change < threshold (saves API calls and gas fees)
@@ -71,30 +88,42 @@ KEY FEATURES:
 - Updates database only after successful placement (data consistency)
 - Sends error notifications per order if placement fails (user awareness)
 - Comprehensive logging with User ID and Market ID for debugging
+- Performance monitoring: Logs start time, end time, and duration for each user's processing
 - Visual formatting: boxed headers for start/end of sync task
 - Runs as background task in bot, synchronizing orders every 60 seconds
 - All blocking operations (API calls) wrapped in asyncio.to_thread() for non-blocking execution
 - List consistency check: validates that cancellation and placement lists have same length
 - Order identification: uses index matching between place_results and orders_to_place to identify failed orders
+- Uses status constants (ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED) from opinion_api for consistency
 
 ARCHITECTURE:
 ============
 - async_sync_all_orders(): Main async function used by bot (background task)
+  * Logs processing time for each user (start, end, duration)
+  * Uses try/except/finally to ensure time logging always happens
 - main(): Synchronous function for standalone script execution (legacy, not used in bot)
 - process_user_orders(): Processes all orders for one user, returns lists and notifications
+  * Checks order status via API before processing (get_order_by_id)
+  * Updates database and sends notifications for status changes
+  * Calculates price changes and determines if repositioning is needed
 - cancel_orders_batch(): Synchronous batch cancellation wrapper
 - place_orders_batch(): Synchronous batch placement wrapper
 - send_price_change_notification(): Sends price change notification to user
 - send_order_updated_notification(): Sends success notification after DB update
 - send_order_placement_error_notification(): Sends error notification if placement fails
+- send_order_filled_notification(): Sends notification when order is filled
+  * Uses API order object (not database dict) for accurate data
+  * Includes filled price, market link to root market, and order details
 """
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
-from database import get_user, get_user_orders, get_all_users, update_order_in_db
+from database import get_user, get_user_orders, get_all_users, update_order_in_db, update_order_status
 from client_factory import create_client, setup_proxy
+from opinion_api import get_order_by_id, ORDER_STATUS_FINISHED, ORDER_STATUS_CANCELED
 from config import TICK_SIZE
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
@@ -236,12 +265,13 @@ def calculate_new_target_price(
     return target
 
 
-async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], List[Dict]]:
+async def process_user_orders(telegram_id: int, bot=None) -> Tuple[List[str], List[Dict], List[Dict]]:
     """
     Обрабатывает ордера пользователя и возвращает списки для отмены и размещения.
     
     Args:
         telegram_id: ID пользователя в Telegram
+        bot: Экземпляр aiogram Bot для отправки уведомлений (опционально)
     
     Returns:
         Tuple: (список order_id для отмены, список параметров новых ордеров, список уведомлений о смещении цены)
@@ -285,10 +315,48 @@ async def process_user_orders(telegram_id: int) -> Tuple[List[str], List[Dict], 
             offset_ticks = db_order.get("offset_ticks", 0)
             amount = db_order.get("amount", 0.0)
             reposition_threshold_cents = float(db_order.get("reposition_threshold_cents"))
+            db_status = db_order.get('status')
             
             if not order_id or not market_id or not side or not token_id:
                 logger.warning(f"Пропуск ордера с неполными данными: {order_id}")
                 continue
+
+            logger.info(f"--- Обрабатываем ордер {order_id} со статусом {db_status}")
+            
+            # Проверяем статус ордера через API
+            # Если ордер был активным, а стал заполненным, обновляем БД и отправляем уведомление
+            try:
+                api_order = await get_order_by_id(client, order_id)
+                if api_order:
+                    # Получаем числовой статус из API и приводим к строке
+                    api_status = str(getattr(api_order, 'status', None))
+                    
+                    # Если статус в БД был 'active', а в API стал 'Finished' (filled)
+                    if db_status == 'active' and api_status == ORDER_STATUS_FINISHED:
+                        logger.info(f"Ордер {order_id} был активным, теперь заполнен. Обновляем БД и отправляем уведомление.")
+                        
+                        # Обновляем статус в БД
+                        await update_order_status(order_id, 'filled')
+                        
+                        # Отправляем уведомление пользователю
+                        if bot:
+                            await send_order_filled_notification(bot, telegram_id, api_order)
+                        
+                        # Пропускаем дальнейшую обработку этого ордера
+                        continue
+                    
+                    # Если статус в БД был 'active', а в API стал 'Canceled' (cancelled)
+                    elif db_status == 'active' and api_status == ORDER_STATUS_CANCELED:
+                        logger.info(f"Ордер {order_id} был активным, теперь отменен. Обновляем БД.")
+                        
+                        # Обновляем статус в БД
+                        await update_order_status(order_id, 'cancelled')
+                        
+                        # Пропускаем дальнейшую обработку этого ордера
+                        continue
+            except Exception as e:
+                logger.warning(f"Ошибка при проверке статуса ордера {order_id} через API: {e}")
+                # Продолжаем обработку, если не удалось проверить статус
             
             # Получаем текущую цену рынка
             new_current_price = get_current_market_price(client, token_id, side)
@@ -650,6 +718,81 @@ async def send_order_placement_error_notification(bot, telegram_id: int, order_p
         logger.error(f"Failed to send order placement error notification to user {telegram_id}: {e}")
 
 
+async def send_order_filled_notification(bot, telegram_id: int, api_order):
+    """
+    Отправляет предупреждающее уведомление пользователю об исполнении ордера.
+    
+    Args:
+        bot: Экземпляр aiogram Bot
+        telegram_id: ID пользователя в Telegram
+        api_order: Объект ордера из API (с полями order_id, market_id, market_title, 
+                  root_market_id, root_market_title, price, side_enum, outcome, 
+                  order_amount, filled_amount, и другие)
+    """
+    try:
+        # Извлекаем данные из объекта ордера API
+        order_id = getattr(api_order, 'order_id', 'N/A')
+        market_id = getattr(api_order, 'market_id', 'N/A')
+        market_title = getattr(api_order, 'market_title', 'N/A')
+        root_market_id = getattr(api_order, 'root_market_id', None)
+        root_market_title = getattr(api_order, 'root_market_title', 'N/A')
+        side_enum = getattr(api_order, 'side_enum', 'N/A')
+        outcome = getattr(api_order, 'outcome', 'N/A')
+        
+        # Цена исполнения - используем price из ордера (цена по которой был размещен ордер)
+        # Если есть информация о сделках, можно использовать цену из trades
+        price_str = getattr(api_order, 'price', '0')
+        try:
+            price_float = float(price_str)
+            price_cents = price_float * 100
+            price_display = f"{price_cents:.2f}".rstrip('0').rstrip('.')
+        except (ValueError, TypeError):
+            price_display = str(price_str)
+        
+        # Количество
+        filled_amount = getattr(api_order, 'filled_amount', '0')
+        order_amount = getattr(api_order, 'order_amount', '0')
+        try:
+            filled_amount_float = float(filled_amount)
+            order_amount_float = float(order_amount)
+            amount_display = f"{filled_amount_float:.6f}".rstrip('0').rstrip('.')
+        except (ValueError, TypeError):
+            amount_display = str(filled_amount)
+        
+        # Эмодзи для направления
+        side_emoji = "📈" if side_enum == "Buy" else "📉"
+        
+        # Формируем ссылку на корневой маркет
+        if root_market_id:
+            market_url = f"https://app.opinion.trade/detail?topicId={root_market_id}"
+            market_link_text = root_market_title[:50] if root_market_title else f'Market {root_market_id}'
+        else:
+            # Если нет root_market_id, используем обычный market_id
+            market_url = f"https://app.opinion.trade/detail?topicId={market_id}"
+            market_link_text = market_title[:50] if market_title else f'Market {market_id}'
+        
+        message = f"""🚨 <b>Order Filled - Action Required</b>
+
+{side_emoji} <b>{outcome} {side_enum}</b>
+📊 Market ID: {market_id}
+📋 Root Market: <a href="{market_url}">{market_link_text}</a>
+
+🆔 <b>Order ID:</b>
+<code>{order_id}</code>
+
+💰 <b>Filled Price:</b> {price_display}¢
+💵 <b>Filled Amount:</b> {amount_display} USDT
+
+Your order has been successfully filled! Please check the market and consider placing new orders. 🎉"""
+        
+        await bot.send_message(chat_id=telegram_id, text=message, parse_mode="HTML")
+        logger.info(f"Отправлено уведомление об исполнении ордера {order_id} пользователю {telegram_id}")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке уведомления пользователю {telegram_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 async def send_cancellation_error_notification(bot, telegram_id: int, failed_orders: List[Dict]):
     """
     Отправляет уведомление пользователю об ошибке отмены ордеров.
@@ -729,13 +872,18 @@ async def async_sync_all_orders(bot):
     
     # Обрабатываем ордера для каждого пользователя
     for telegram_id in users:
+        # Засекаем время начала обработки пользователя
+        user_start_time = time.time()
+        user_start_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(user_start_time))
+        
         logger.info(f"\n{'='*80}")
         logger.info(f"Обработка пользователя {telegram_id}")
+        logger.info(f"⏰ Время начала: {user_start_time_str}")
         logger.info(f"{'='*80}")
         
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления
-            orders_to_cancel, orders_to_place, price_change_notifications = await process_user_orders(telegram_id)
+            orders_to_cancel, orders_to_place, price_change_notifications = await process_user_orders(telegram_id, bot)
             
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:
@@ -922,7 +1070,15 @@ async def async_sync_all_orders(bot):
         except Exception as e:
             logger.error(f"Ошибка при обработке пользователя {telegram_id}: {e}")
             total_errors += 1
-            continue
+        finally:
+            # Засекаем время окончания обработки пользователя (всегда выполняется)
+            user_end_time = time.time()
+            user_end_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(user_end_time))
+            user_elapsed = user_end_time - user_start_time
+            
+            logger.info(f"⏰ Время окончания обработки пользователя {telegram_id}: {user_end_time_str}")
+            logger.info(f"⏱️  Время обработки пользователя {telegram_id}: {user_elapsed:.2f} секунд ({user_elapsed/60:.2f} минут)")
+            logger.info(f"{'='*80}")
     
     # Итоговая статистика
     logger.info("")
