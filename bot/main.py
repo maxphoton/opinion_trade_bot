@@ -26,6 +26,7 @@ from config import settings
 from database import (
     init_database,
     get_user,
+    delete_user,
     export_all_tables_to_zip
 )
 from invites import get_unused_invites, get_invites_statistics
@@ -61,6 +62,11 @@ router = Router()
 class SupportStates(StatesGroup):
     """States for support message."""
     waiting_support_message = State()
+
+
+class DeleteUserStates(StatesGroup):
+    """States for delete user command."""
+    waiting_telegram_id = State()
 
 
 # ============================================================================
@@ -131,6 +137,82 @@ async def cmd_get_invites(message: Message):
     except Exception as e:
         logger.error(f"Ошибка получения инвайтов: {e}")
         await message.answer(f"""❌ Error getting invites: {e}""")
+
+
+@router.message(Command("delete_user"))
+async def cmd_delete_user(message: Message, state: FSMContext):
+    """Обработчик команды /delete_user - удаление пользователя из БД (только для администратора)."""
+    # Проверяем права администратора
+    if message.from_user.id != settings.admin_telegram_id:
+        return
+    
+    await message.answer(
+        """🗑️ <b>Delete User</b>
+Please enter the Telegram ID of the user you want to delete.
+The user and all their orders will be removed from the database, allowing them to register again."""
+    )
+    await state.set_state(DeleteUserStates.waiting_telegram_id)
+
+
+@router.message(DeleteUserStates.waiting_telegram_id)
+async def process_delete_user_telegram_id(message: Message, state: FSMContext):
+    """Обработчик ввода Telegram ID для удаления пользователя."""
+    # Проверяем права администратора
+    if message.from_user.id != settings.admin_telegram_id:
+        await state.clear()
+        return
+    
+    try:
+        # Пытаемся преобразовать введенный текст в число
+        telegram_id = int(message.text.strip())
+    except ValueError:
+        await message.answer(
+            """❌ Invalid Telegram ID format. Please enter a numeric ID.
+Example: 123456789
+
+Please try again:"""
+        )
+        return
+    
+    # Проверяем, существует ли пользователь
+    user = await get_user(telegram_id)
+    if not user:
+        await message.answer(
+            f"""❌ User with Telegram ID <code>{telegram_id}</code> not found in database.
+Please check the ID and try again:"""
+        )
+        await state.clear()
+        return
+    
+    # Удаляем пользователя
+    try:
+        deleted = await delete_user(telegram_id)
+        if deleted:
+            username = user.get('username', 'N/A')
+            await message.answer(
+                f"""✅ User deleted successfully!
+
+📋 <b>Deleted User Info:</b>
+• Telegram ID: <code>{telegram_id}</code>
+• Username: @{username if username != 'N/A' else 'N/A'}
+
+The user and all their orders have been removed from the database.
+They can now register again using /start."""
+            )
+            logger.info(f"Администратор {message.from_user.id} удалил пользователя {telegram_id}")
+        else:
+            await message.answer(
+                f"""❌ Failed to delete user with Telegram ID <code>{telegram_id}</code>.
+Please try again:"""
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при удалении пользователя {telegram_id}: {e}")
+        await message.answer(
+            f"""❌ Error deleting user: {e}
+Please try again:"""
+        )
+    finally:
+        await state.clear()
 
 
 @router.message(Command("orders"))

@@ -128,7 +128,7 @@ python main.py
 
 1. Start the bot with `/start`
 2. Enter your invite code (10-character alphanumeric code)
-3. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade/profile)
+3. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
 4. Enter your private key
 5. Enter your Opinion Labs API key
 

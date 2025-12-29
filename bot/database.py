@@ -391,6 +391,54 @@ async def get_all_users():
     return [row[0] for row in rows]
 
 
+async def delete_user(telegram_id: int) -> bool:
+    """
+    Удаляет пользователя, все его ордера и очищает использованные инвайты из базы данных.
+    
+    Args:
+        telegram_id: ID пользователя в Telegram
+    
+    Returns:
+        bool: True если пользователь был удален, False если пользователь не найден
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Проверяем, существует ли пользователь
+        async with conn.execute(
+            "SELECT telegram_id FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        ) as cursor:
+            user_exists = await cursor.fetchone()
+        
+        if not user_exists:
+            logger.warning(f"Попытка удалить несуществующего пользователя {telegram_id}")
+            return False
+        
+        # Удаляем все ордера пользователя (CASCADE не настроен, удаляем вручную)
+        async with conn.execute(
+            "DELETE FROM orders WHERE telegram_id = ?",
+            (telegram_id,)
+        ) as cursor:
+            orders_deleted = cursor.rowcount
+        
+        # Очищаем использованные инвайты пользователя (чтобы они снова стали доступны)
+        async with conn.execute(
+            "UPDATE invites SET telegram_id = NULL, used_at = NULL WHERE telegram_id = ?",
+            (telegram_id,)
+        ) as cursor:
+            invites_cleared = cursor.rowcount
+        
+        # Удаляем пользователя
+        await conn.execute(
+            "DELETE FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        )
+        
+        await conn.commit()
+        
+        logger.info(f"Пользователь {telegram_id} удален из БД (удалено {orders_deleted} ордеров, очищено {invites_cleared} инвайтов)")
+        return True
+
+
 async def check_wallet_address_exists(wallet_address: str) -> bool:
     """
     Проверяет, существует ли уже пользователь с таким wallet_address.

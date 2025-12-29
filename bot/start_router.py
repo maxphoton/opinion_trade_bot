@@ -101,7 +101,7 @@ Please enter a valid invite code:"""
 ⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
 The data is never used in its raw form and is not shared with third parties.
 
-Please enter your Balance spot address found <a href="https://app.opinion.trade/profile">in your profile</a>:"""
+Please enter your Balance spot address found <a href="https://app.opinion.trade?code=BJea79">in your profile</a>:"""
     )
     await state.set_state(RegistrationStates.waiting_wallet)
 
@@ -187,12 +187,13 @@ Please start registration again with /start using a valid invite code."""
             return
     
     # Save user to database
+    # Дополнительно очищаем значения от пробелов при сохранении (для надежности)
     await save_user(
         telegram_id=telegram_id,
-        username=message.from_user.username,
-        wallet_address=data['wallet_address'],
-        private_key=data['private_key'],
-        api_key=api_key
+        username=message.from_user.username.strip() if message.from_user.username else None,
+        wallet_address=data['wallet_address'].strip(),
+        private_key=data['private_key'].strip(),
+        api_key=api_key.strip()
     )
     
     await state.clear()
