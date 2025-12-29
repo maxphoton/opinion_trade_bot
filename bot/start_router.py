@@ -89,6 +89,12 @@ Please enter a valid invite code:"""
     # Сохраняем инвайт в state (будем использовать в конце регистрации)
     await state.update_data(invite_code=invite_code)
     
+    # Удаляем сообщение пользователя с инвайт-кодом
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    
     # Переходим к следующему шагу
     # Send image with caption in one message
     photo_path = Path(__file__).parent.parent / "files" / "spot_addr.png"
@@ -125,6 +131,13 @@ Please enter a different wallet address:"""
         return
     
     await state.update_data(wallet_address=wallet_address)
+    
+    # Удаляем сообщение пользователя с адресом кошелька
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    
     await message.answer("Please enter your private key:")
     await state.set_state(RegistrationStates.waiting_private_key)
 
@@ -148,6 +161,13 @@ Please enter a different private key:"""
         return
     
     await state.update_data(private_key=private_key)
+    
+    # Удаляем сообщение пользователя с приватным ключом
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    
     await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""")
     await state.set_state(RegistrationStates.waiting_api_key)
 
@@ -195,6 +215,12 @@ Please start registration again with /start using a valid invite code."""
         private_key=data['private_key'].strip(),
         api_key=api_key.strip()
     )
+    
+    # Удаляем сообщение пользователя с API ключом
+    try:
+        await message.delete()
+    except Exception:
+        pass
     
     await state.clear()
     await message.answer(

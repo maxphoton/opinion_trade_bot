@@ -90,6 +90,7 @@ upload_files() {
         --exclude='pytest.ini' \
         --exclude='logs' \
         --exclude='*.log' \
+        --exclude='deploy.sh' \
         ./ "$SERVER_USER@$SERVER_HOST:$SERVER_PATH/"
     
     print_info "Файлы загружены"
