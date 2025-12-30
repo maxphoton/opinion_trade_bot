@@ -3,8 +3,10 @@ Router for user registration flow (/start command).
 Handles the complete registration process from wallet address to API key.
 """
 
+import hashlib
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 
 from aiogram import Router
@@ -15,6 +17,8 @@ from aiogram.types import Message, FSInputFile
 
 from database import get_user, save_user, check_wallet_address_exists, check_private_key_exists, check_api_key_exists
 from invites import is_invite_valid, use_invite
+from client_factory import create_client
+from opinion_api_wrapper import get_my_orders
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,7 @@ start_router = Router()
 @start_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     """Handler for /start command - start of registration process."""
+    logger.info(f"Команда /start от пользователя {message.from_user.id}")
     user = await get_user(message.from_user.id)
     
     if user:
@@ -193,7 +198,52 @@ Please enter a different API key:"""
     data = await state.get_data()
     telegram_id = message.from_user.id
     
-    # Используем инвайт перед сохранением пользователя
+    # Подготавливаем данные для проверки подключения
+    wallet_address = data['wallet_address'].strip()
+    private_key = data['private_key'].strip()
+    api_key_clean = api_key.strip()
+    
+    # Проверяем подключение к API перед сохранением в БД
+    await message.answer("""🔍 Verifying connection to API...""")
+    
+    try:
+        # Создаем временный словарь с данными пользователя для проверки
+        test_user_data = {
+            'wallet_address': wallet_address,
+            'private_key': private_key,
+            'api_key': api_key_clean
+        }
+        
+        # Пытаемся создать клиент
+        test_client = create_client(test_user_data)
+        
+        # Пытаемся получить ордера пользователя для проверки подключения
+        orders = await get_my_orders(test_client, market_id=0, status="", limit=1, page=1)
+        
+        # Если дошли сюда без исключений, значит подключение успешно
+        logger.info(f"Успешная проверка подключения для пользователя {telegram_id}")
+        
+    except Exception as e:
+        # Генерируем код ошибки для сопоставления с логами
+        error_str = str(e)
+        error_hash = hashlib.md5(error_str.encode()).hexdigest()[:8].upper()
+        error_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        await message.answer(
+            f"""❌ Registration failed: Could not connect to API.
+
+Error code: <code>{error_hash}</code>
+Time: {error_time}
+
+Please check the correctness of the entered data and try again with /start command.
+
+If the problem persists, contact administrator via /support and provide the error code above."""
+        )
+        await state.clear()
+        logger.error(f"Ошибка проверки подключения для пользователя {telegram_id} [CODE: {error_hash}] [TIME: {error_time}]: {e}")
+        return
+    
+    # Если проверка прошла успешно, используем инвайт и сохраняем пользователя в БД
     invite_code = data.get('invite_code')
     if invite_code:
         # Используем инвайт (атомарно, с проверкой валидности внутри)
@@ -206,14 +256,13 @@ Please start registration again with /start using a valid invite code."""
             )
             return
     
-    # Save user to database
-    # Дополнительно очищаем значения от пробелов при сохранении (для надежности)
+    # Сохраняем пользователя в БД
     await save_user(
         telegram_id=telegram_id,
         username=message.from_user.username.strip() if message.from_user.username else None,
-        wallet_address=data['wallet_address'].strip(),
-        private_key=data['private_key'].strip(),
-        api_key=api_key.strip()
+        wallet_address=wallet_address,
+        private_key=private_key,
+        api_key=api_key_clean
     )
     
     # Удаляем сообщение пользователя с API ключом
@@ -226,7 +275,7 @@ Please start registration again with /start using a valid invite code."""
     await message.answer(
         """✅ Registration Completed!
 
-Your data has been encrypted.
+Your data has been encrypted and verified.
 
 Use the /make_market command to start a new farm.
 Use the /support command to contact administrator.""")

@@ -4,7 +4,10 @@ Handles the complete order placement process from URL input to order confirmatio
 """
 
 import asyncio
+import hashlib
 import logging
+import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlparse, parse_qs
@@ -297,6 +300,7 @@ market_router = Router()
 @market_router.message(Command("make_market"))
 async def cmd_make_market(message: Message, state: FSMContext):
     """Handler for /make_market command - start of order placement process."""
+    logger.info(f"Команда /make_market от пользователя {message.from_user.id}")
     user = await get_user(message.from_user.id)
     
     if not user:
@@ -337,7 +341,31 @@ async def process_market_url(message: Message, state: FSMContext):
     
     # Get user data and create client
     user = await get_user(message.from_user.id)
-    client = create_client(user)
+    if not user:
+        await message.answer("""❌ User not found. Please register with /start first.""")
+        await state.clear()
+        return
+    
+    # Создаем клиент с обработкой ошибок
+    try:
+        client = create_client(user)
+    except Exception as e:
+        # Генерируем код ошибки для сопоставления с логами
+        error_str = str(e)
+        error_hash = hashlib.md5(error_str.encode()).hexdigest()[:8].upper()
+        error_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        await message.answer(
+            f"""❌ Failed to create API client.
+
+Error code: <code>{error_hash}</code>
+Time: {error_time}
+
+Please contact administrator via /support and provide the error code above."""
+        )
+        await state.clear()
+        logger.error(f"Ошибка создания клиента для пользователя {message.from_user.id} [CODE: {error_hash}] [TIME: {error_time}]: {e}")
+        return
     
     # Get market information
     await message.answer("""📊 Getting market information...""")

@@ -77,6 +77,7 @@ class DeleteUserStates(StatesGroup):
 @router.message(Command("get_db"))
 async def cmd_get_db(message: Message):
     """Обработчик команды /get_db - экспорт всех таблиц базы данных в ZIP архив (только для администратора)."""
+    logger.info(f"Команда /get_db от пользователя {message.from_user.id}")
     # Проверяем права администратора
     if message.from_user.id != settings.admin_telegram_id:
         return
@@ -104,6 +105,7 @@ async def cmd_get_db(message: Message):
 @router.message(Command("get_invites"))
 async def cmd_get_invites(message: Message):
     """Обработчик команды /get_invites - получение 10 неиспользованных инвайтов (только для администратора)."""
+    logger.info(f"Команда /get_invites от пользователя {message.from_user.id}")
     # Проверяем права администратора
     if message.from_user.id != settings.admin_telegram_id:
         return
@@ -142,6 +144,7 @@ async def cmd_get_invites(message: Message):
 @router.message(Command("delete_user"))
 async def cmd_delete_user(message: Message, state: FSMContext):
     """Обработчик команды /delete_user - удаление пользователя из БД (только для администратора)."""
+    logger.info(f"Команда /delete_user от пользователя {message.from_user.id}")
     # Проверяем права администратора
     if message.from_user.id != settings.admin_telegram_id:
         return
@@ -218,6 +221,7 @@ Please try again:"""
 @router.message(Command("orders"))
 async def cmd_orders(message: Message, dialog_manager: DialogManager):
     """Обработчик команды /orders - просмотр ордеров пользователя."""
+    logger.info(f"Команда /orders от пользователя {message.from_user.id}")
     # Проверяем, зарегистрирован ли пользователь
     user = await get_user(message.from_user.id)
     if not user:
@@ -237,6 +241,7 @@ async def cmd_orders(message: Message, dialog_manager: DialogManager):
 @router.message(Command("support"))
 async def cmd_support(message: Message, state: FSMContext):
     """Обработчик команды /support - отправка сообщения в поддержку."""
+    logger.info(f"Команда /support от пользователя {message.from_user.id}")
     await message.answer(
         """💬 <b>Support</b>
 
