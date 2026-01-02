@@ -10,6 +10,12 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Async SQLite Database**: User credentials are stored locally in an encrypted SQLite database using `aiosqlite` for non-blocking operations
 - **Zero Trust**: Your private keys never leave your server in unencrypted form
 - **Atomic Invite Usage**: Invites are used atomically at the end of registration to prevent conflicts
+- **Data Validation**: 
+  - Wallet address, private key, and API key must be unique
+  - Input trimming (removes leading/trailing whitespace)
+  - Important notes during registration about matching wallet, private key, and API key
+- **Connection Testing**: API connection is tested at the end of registration using `get_my_orders` before saving user data
+- **Error Handling**: User-friendly error messages with error codes and timestamps for support reference
 
 ### 🎫 Invite Management (Admin Only)
 - **Invite Generation**: Admin command `/get_invites` generates and displays 10 unused invite codes
@@ -17,6 +23,11 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Statistics**: View total, used, and unused invite counts
 - **One-Time Use**: Each invite can only be used once
 - **Unique Codes**: 10-character alphanumeric codes with uniqueness validation
+
+### 👤 User Management (Admin Only)
+- **User Deletion**: Admin command `/delete_user` allows removing users from the database
+- **Complete Removal**: Deletes user, all their orders, and clears associated invites
+- **Re-registration Support**: Deleted users can register again with a new invite code
 
 ### 📊 Market Order Placement
 - **Interactive Flow**: Step-by-step process for placing limit orders
@@ -34,9 +45,11 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Order Search**: Search orders by order ID, market ID, market title, token name, or side
 - **Order Cancellation**: Cancel orders directly from the bot interface with detailed error messages
 - **Price Offset in Cents**: Set order prices relative to best bid using intuitive cent-based offsets
-- **Direction Selection**: Choose BUY (below current price) or SELL (above current price)
+- **Direction Selection**: Choose BUY (below current price) or SELL (above current price, can be used to sell shares)
 - **Order Confirmation**: Review all settings before placing orders
-- **Order Status Tracking**: View order status (active, filled, cancelled)
+- **Order Status Tracking**: View order status (pending, finished, canceled)
+- **Bot-Only Orders**: Only orders created through the bot can be managed; manually placed orders are not displayed
+- **Execution Notifications**: Automatic notifications when orders are executed with execution details
 
 ### 🔄 Automatic Order Synchronization
 - **Background Task**: Automatically synchronizes orders every 60 seconds
@@ -57,8 +70,11 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 
 ### 📝 Logging & Monitoring
 - **Separate Log Files**: Different log files for different modules:
-  - `bot.log` - Main bot operations
-  - `sync_orders.log` - Order synchronization operations
+  - `logs/bot.log` - Main bot operations (INFO level and above)
+  - `logs/sync_orders.log` - Order synchronization operations
+- **Dual-Level Logging**: 
+  - File logs: INFO+ with detailed format including `filename:lineno` for debugging
+  - Console logs: WARNING+ with simplified format for important messages only
 - **Detailed Logging**: Comprehensive logging with user IDs, market IDs, and execution times
 - **Performance Monitoring**: Logs start time, end time, and duration for each user's processing
 - **Error Tracking**: Full traceback logging for debugging
@@ -66,9 +82,17 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 ### 💬 Support System
 - **User Support**: Command `/support` allows users to contact the administrator
 - **Message Forwarding**: Support messages (text or photo with caption) are forwarded to the admin
-- **User Information**: Admin receives user ID and username with each support message
+- **User Information**: Admin receives user ID, username, and name with each support message
 - **No Registration Required**: Support command is available to all users (no registration needed)
 - **Confirmation**: Users receive confirmation when their message is sent
+
+### 📖 Help & Documentation
+- **Multi-Language Help**: Command `/help` provides comprehensive instructions in three languages:
+  - 🇬🇧 English (default)
+  - 🇷🇺 Russian
+  - 🇨🇳 Chinese
+- **Interactive Language Selection**: Inline buttons for easy language switching
+- **Complete Guide**: Includes registration instructions, order placement workflow, order management, and support information
 
 ### 🛡️ Security & Performance
 - **Anti-Spam Protection**: Built-in middleware to prevent message spam
@@ -129,10 +153,18 @@ python main.py
 1. Start the bot with `/start`
 2. Enter your invite code (10-character alphanumeric code)
 3. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
+   - ⚠️ **Important**: Must be the wallet address for which the API key was obtained
 4. Enter your private key
+   - ⚠️ **Important**: Must correspond to the wallet address from step 3
 5. Enter your Opinion Labs API key
+   - ⚠️ **Important**: Must be the API key obtained for the wallet from step 3
 
-All data is encrypted and stored securely. The invite code is validated and used atomically at the end of registration.
+All data is encrypted and stored securely. The bot validates:
+- Uniqueness of wallet address, private key, and API key
+- API connection at the end of registration (using `get_my_orders`)
+- If connection test fails, registration is aborted and you'll need to restart with `/start`
+
+The invite code is validated and used atomically at the end of registration only if all checks pass.
 
 ### Invite Management (Admin Only)
 
@@ -161,14 +193,29 @@ All data is encrypted and stored securely. The invite code is validated and used
 2. Browse orders with pagination (10 orders per page)
 3. Use the search function to find specific orders
 4. Cancel orders by entering the order ID (order list remains visible for easy copying)
-5. View order details: status, price, amount, market, creation date
+5. View order details: status (pending/finished/canceled), price, amount, market, creation date
+
+⚠️ **Note**: You can only manage orders that were created through the bot. Orders placed manually on the platform are not displayed.
+
+📬 **Notifications**: When an order is executed, the bot automatically sends you a notification with execution details (price, market link, etc.).
+
+### Getting Help
+
+1. Use `/help` to view comprehensive bot instructions
+2. Select your preferred language (English, Russian, or Chinese) using inline buttons
+3. The help includes:
+   - Bot purpose and functionality
+   - Registration instructions with important notes
+   - Step-by-step order placement guide with examples
+   - Order management information
+   - Support contact information
 
 ### Contacting Support
 
 1. Use `/support` to contact the administrator
 2. Enter your question or describe the issue
 3. You can send text or a photo with a caption
-4. Your message will be forwarded to the administrator with your user information
+4. Your message will be forwarded to the administrator with your user information (ID, username, name)
 5. You'll receive a confirmation when your message is sent
 
 ## Project Structure
@@ -182,6 +229,7 @@ bot/
 ├── client_factory.py         # Opinion SDK client creation and proxy setup
 ├── spam_protection.py       # Anti-spam middleware
 ├── logger_config.py         # Logging configuration and setup
+├── help_text.py             # Multi-language help text (English, Russian, Chinese)
 ├── start_router.py          # User registration flow (/start command)
 ├── market_router.py         # Market order placement flow (/make_market command)
 ├── orders_dialog.py         # Order management dialog (/orders command)
@@ -227,21 +275,23 @@ The bot supports the following environment variables:
 - `/start` - Register and set up your account (requires invite code)
 - `/make_market` - Start placing a limit order
 - `/orders` - View, search, and manage your orders
+- `/help` - View comprehensive bot instructions (available in English, Russian, and Chinese)
 - `/support` - Contact administrator with questions or issues (supports text and photos)
 
 ### Admin Commands
 - `/get_db` - Export user database (admin only)
 - `/get_invites` - Get 10 unused invite codes with statistics (admin only)
+- `/delete_user` - Delete a user from the database (admin only)
 
 ## Automatic Order Synchronization
 
 The bot automatically synchronizes your orders every 60 seconds:
 
 ### How it works:
-1. **Status Check**: For each active order, checks status via API
-   - If order is filled: updates database, sends notification with order details
-   - If order is cancelled: updates database silently (no notification)
-   - If status check fails: continues with normal processing
+1. **Status Check**: For each pending order, checks status via API
+   - If order is finished: updates database to 'finished', sends notification with order details (price, market link)
+   - If order is canceled: updates database to 'canceled', skips processing silently (no notification)
+   - If status check fails: continues with normal processing (graceful degradation)
 
 2. **Price Monitoring**: Monitors market prices and maintains a constant offset (in ticks) between the current market price and your order's target price
 
@@ -309,7 +359,13 @@ The bot automatically synchronizes your orders every 60 seconds:
 
 ### Database Schema
 - **users**: Encrypted user credentials (wallet, private key, API key)
+  - `telegram_id` (PRIMARY KEY): User's Telegram ID
+  - All sensitive data encrypted with AES-GCM
+  - Unique constraints on wallet address, private key, and API key
 - **orders**: Order information (order_id, market_id, prices, amounts, status, etc.)
+  - Status values: `pending`, `finished`, `canceled` (aligned with API terminology)
+  - Default status: `pending`
+  - Migration function updates old statuses automatically
 - **invites**: Invite codes and usage tracking
 
 ## Disclaimer

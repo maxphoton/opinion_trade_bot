@@ -10,14 +10,15 @@
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher, Router
+from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, BufferedInputFile
+from aiogram.types import Message, BufferedInputFile, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, StartMode, setup_dialogs
 from dotenv import load_dotenv
 
@@ -37,6 +38,7 @@ from sync_orders import async_sync_all_orders
 from logger_config import setup_root_logger
 from start_router import start_router
 from market_router import market_router
+from help_text import HELP_TEXT, HELP_TEXT_ENG, HELP_TEXT_CN
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -238,6 +240,53 @@ async def cmd_orders(message: Message, dialog_manager: DialogManager):
     await dialog_manager.start(OrdersSG.orders_list, data={"telegram_id": telegram_id}, mode=StartMode.RESET_STACK)
 
 
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    """Обработчик команды /help - инструкция по работе с ботом."""
+    logger.info(f"Команда /help от пользователя {message.from_user.id}")
+    
+    # Создаем клавиатуру с кнопками выбора языка
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🇷🇺 Русский", callback_data="help_lang_ru")
+    builder.button(text="🇬🇧 English", callback_data="help_lang_eng")
+    builder.button(text="🇨🇳 中文", callback_data="help_lang_cn")
+    builder.adjust(3)
+    
+    await message.answer(HELP_TEXT_ENG, parse_mode="HTML", reply_markup=builder.as_markup())
+
+
+@router.callback_query(F.data.startswith("help_lang_"))
+async def process_help_lang(callback: CallbackQuery):
+    """Обработчик переключения языка в инструкции."""
+    lang = callback.data.split("_")[-1]
+    
+    # Выбираем текст в зависимости от языка
+    if lang == "ru":
+        text = HELP_TEXT
+    elif lang == "eng":
+        text = HELP_TEXT_ENG
+    elif lang == "cn":
+        text = HELP_TEXT_CN
+    else:
+        text = HELP_TEXT
+    
+    # Создаем клавиатуру с кнопками выбора языка
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🇷🇺 Русский", callback_data="help_lang_ru")
+    builder.button(text="🇬🇧 English", callback_data="help_lang_eng")
+    builder.button(text="🇨🇳 中文", callback_data="help_lang_cn")
+    builder.adjust(3)
+    
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении текста инструкции: {e}")
+        await callback.answer("❌ Error updating message")
+        return
+    
+    await callback.answer()
+
+
 @router.message(Command("support"))
 async def cmd_support(message: Message, state: FSMContext):
     """Обработчик команды /support - отправка сообщения в поддержку."""
@@ -318,6 +367,7 @@ async def handle_unknown_message(message: Message):
     await message.answer(
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
+Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )
 

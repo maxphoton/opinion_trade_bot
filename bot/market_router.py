@@ -376,6 +376,10 @@ Please contact administrator via /support and provide the error code above."""
         await state.clear()
         return
     
+    # Show market name after successful retrieval
+    market_title = getattr(market, 'market_title', 'Unknown Market')
+    await message.answer(f"""✅ Market found: <b>{market_title}</b>""")
+    
     # If this is a categorical market, need to select submarket
     if is_categorical:
         submarkets = get_categorical_market_submarkets(market)
@@ -990,6 +994,7 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
+Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )
 

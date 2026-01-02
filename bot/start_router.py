@@ -53,6 +53,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
 Use the /make_market command to place an order.
 Use the /orders command to manage your orders.
+Use the /help command to view instructions.
 Use the /support command to contact administrator."""
         )
         return
@@ -112,7 +113,9 @@ Please enter a valid invite code:"""
 ⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
 The data is never used in its raw form and is not shared with third parties.
 
-Please enter your Balance spot address found <a href="https://app.opinion.trade?code=BJea79">in your profile</a>:"""
+Please enter your Balance spot address found <a href="https://app.opinion.trade?code=BJea79">in your profile</a>:
+
+⚠️ Important: You must specify the spot address for which you received the API key."""
     )
     await state.set_state(RegistrationStates.waiting_wallet)
 
@@ -143,7 +146,9 @@ Please enter a different wallet address:"""
     except Exception:
         pass
     
-    await message.answer("Please enter your private key:")
+    await message.answer("""Please enter your private key:
+
+⚠️ Important: You must specify the private key of the wallet you registered with (the same wallet address you entered above).""")
     await state.set_state(RegistrationStates.waiting_private_key)
 
 
@@ -173,7 +178,9 @@ Please enter a different private key:"""
     except Exception:
         pass
     
-    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:""")
+    await message.answer("""Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:
+
+⚠️ Important: You must enter the API key that was obtained for the wallet address from step 1.""")
     await state.set_state(RegistrationStates.waiting_api_key)
 
 
@@ -278,4 +285,5 @@ Please start registration again with /start using a valid invite code."""
 Your data has been encrypted and verified.
 
 Use the /make_market command to start a new farm.
+Use the /help command to view instructions.
 Use the /support command to contact administrator.""")
