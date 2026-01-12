@@ -69,6 +69,7 @@ import asyncio
 import traceback
 from typing import Any, List, Optional
 
+from config import USDT_CONTRACT_ADDRESS
 from logger_config import setup_logger
 
 # Настройка логирования: используем тот же логгер, что и sync_orders,
@@ -241,3 +242,109 @@ async def get_order_by_id(client, order_id: str) -> Optional[Any]:
             logger.error(traceback.format_exc())
 
         return None
+
+
+async def get_usdt_balance(client) -> float:
+    """
+    Получает баланс USDT пользователя из API (асинхронная версия).
+
+    Args:
+        client: Клиент Opinion SDK
+
+    Returns:
+        Баланс USDT в виде float. Возвращает 0.0 в случае ошибки.
+    """
+    try:
+        # Вызываем API в отдельном потоке, так как SDK синхронный
+        response = await asyncio.to_thread(client.get_my_balances)
+
+        # Проверяем ошибки
+        if response.errno != 0:
+            logger.warning(
+                f"Ошибка при получении баланса: errno={response.errno}, errmsg={getattr(response, 'errmsg', 'N/A')}"
+            )
+            return 0.0
+
+        if not hasattr(response, "result") or not response.result:
+            logger.warning("Ответ API не содержит result")
+            return 0.0
+
+        if not hasattr(response.result, "balances") or not response.result.balances:
+            logger.warning("Ответ API не содержит balances")
+            return 0.0
+
+        # Ищем баланс USDT в массиве балансов
+        # quote_token - это адрес контракта USDT (0x55d398326f99059ff775485246999027b3197955)
+        available = 0.0
+        for balance in response.result.balances:
+            quote_token = getattr(balance, "quote_token", "")
+            if quote_token.lower() == USDT_CONTRACT_ADDRESS.lower():
+                available_balance_str = getattr(balance, "available_balance", "0")
+                available = float(available_balance_str)
+                break
+
+        if available == 0.0:
+            available_tokens = [
+                getattr(b, "quote_token", "unknown") for b in response.result.balances
+            ]
+            logger.warning(
+                f"USDT баланс не найден. Доступные токены: {available_tokens}"
+            )
+
+        return available
+
+    except Exception as e:
+        logger.error(f"Исключение при получении баланса из API: {e}")
+        logger.error(traceback.format_exc())
+        return 0.0
+
+
+async def get_my_positions(client, limit: int = 100) -> List[Any]:
+    """
+    Получает позиции пользователя из API (асинхронная версия).
+
+    Args:
+        client: Клиент Opinion SDK
+        limit: Количество позиций для получения (по умолчанию 100)
+
+    Returns:
+        Список объектов позиций со всеми полями из API.
+        Каждый объект содержит поля: market_id, market_title, shares_owned,
+        current_value_in_quote_token, outcome_side_enum, и другие.
+    """
+    try:
+        logger.info(f"Запрос позиций из API: limit={limit}")
+
+        # Вызываем API в отдельном потоке, так как SDK синхронный
+        response = await asyncio.to_thread(client.get_my_positions, limit=limit)
+
+        logger.info(
+            f"API Response: errno={response.errno}, errmsg={getattr(response, 'errmsg', 'N/A')}"
+        )
+
+        # Проверяем ошибки
+        if response.errno != 0:
+            logger.warning(
+                f"Ошибка при получении позиций: errno={response.errno}, errmsg={getattr(response, 'errmsg', 'N/A')}"
+            )
+            return []
+
+        if not hasattr(response, "result") or not response.result:
+            logger.warning("Ответ API не содержит result")
+            return []
+
+        if not hasattr(response.result, "list"):
+            logger.warning("Ответ API не содержит result.list")
+            return []
+
+        # Возвращаем список объектов позиций со всеми полями
+        position_list = response.result.list
+        position_count = len(position_list) if position_list else 0
+        logger.info(f"Получено {position_count} позиций из API")
+
+        return position_list if position_list else []
+
+    except Exception as e:
+        logger.error(f"Исключение при получении позиций из API: {e}")
+        logger.error(traceback.format_exc())
+        return []

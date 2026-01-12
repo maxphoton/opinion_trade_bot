@@ -22,17 +22,24 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, StartMode, setup_dialogs
-from client_factory import setup_proxy
+from client_factory import create_client, setup_proxy
 from config import settings
 from database import get_user, init_database
 from dotenv import load_dotenv
 from help_text import HELP_TEXT, HELP_TEXT_CN, HELP_TEXT_ENG
 from logger_config import setup_root_logger
 from market_router import market_router
+from opinion_api_wrapper import (
+    ORDER_STATUS_PENDING,
+    get_my_orders,
+    get_my_positions,
+    get_usdt_balance,
+)
 from orders_dialog import OrdersSG, orders_dialog
 from spam_protection import AntiSpamMiddleware
 from start_router import start_router
 from sync_orders import async_sync_all_orders
+from typing_middleware import TypingMiddleware
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -88,6 +95,66 @@ async def cmd_orders(message: Message, dialog_manager: DialogManager):
         data={"telegram_id": telegram_id},
         mode=StartMode.RESET_STACK,
     )
+
+
+@router.message(Command("check_account"))
+async def cmd_check_account(message: Message):
+    """Обработчик команды /check_account - статистика по аккаунту."""
+    logger.info(f"Команда /check_account от пользователя {message.from_user.id}")
+
+    # Проверяем, зарегистрирован ли пользователь
+    user = await get_user(message.from_user.id)
+    if not user:
+        await message.answer(
+            """❌ You are not registered. Use /start to register first."""
+        )
+        return
+
+    try:
+        # Создаем клиент
+        client = create_client(user)
+
+        # Получаем данные аккаунта
+        balance = await get_usdt_balance(client)
+        open_orders = await get_my_orders(client, status=ORDER_STATUS_PENDING)
+        positions = await get_my_positions(client, limit=100)
+
+        # Подсчитываем количество открытых ордеров
+        open_orders_count = len(open_orders) if open_orders else 0
+
+        # Подсчитываем количество позиций
+        positions_count = len(positions) if positions else 0
+
+        # Вычисляем общую стоимость позиций
+        total_value = 0.0
+        if positions:
+            for position in positions:
+                try:
+                    value_str = getattr(position, "current_value_in_quote_token", "0")
+                    value = float(value_str) if value_str else 0.0
+                    total_value += value
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Ошибка при парсинге стоимости позиции: {e}")
+                    continue
+
+        # Формируем сообщение
+        account_info = f"""📊 <b>Account Information</b>
+
+💰 USDT Balance: {balance:.6f} USDT
+
+📋 Open Orders: {open_orders_count}
+
+📈 Open Positions: {positions_count}
+
+💵 Total Value in Positions: {total_value:.6f} USDT"""
+
+        await message.answer(account_info, parse_mode=ParseMode.HTML)
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики аккаунта: {e}")
+        await message.answer(
+            """❌ Failed to get account information. Please try again later."""
+        )
 
 
 @router.message(Command("help"))
@@ -228,6 +295,7 @@ async def handle_unknown_message(message: Message):
     await message.answer(
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
+Use the /check_account command to view account statistics.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )
@@ -267,6 +335,10 @@ async def main():
     # Регистрируем middleware для антиспама (глобально)
     dp.message.middleware(AntiSpamMiddleware(bot=bot))
     dp.callback_query.middleware(AntiSpamMiddleware(bot=bot))
+
+    # Регистрируем middleware для действия печатания (глобально)
+    dp.message.middleware(TypingMiddleware(bot=bot))
+    dp.callback_query.middleware(TypingMiddleware(bot=bot))
 
     # Регистрируем диалоги
     dp.include_router(orders_dialog)

@@ -6,6 +6,7 @@ Handles the complete order placement process from URL input to order confirmatio
 import asyncio
 import hashlib
 import logging
+import traceback
 from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +20,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from client_factory import create_client
 from config import TICK_SIZE
 from database import get_user, save_order
+from opinion_api_wrapper import get_usdt_balance
 from opinion_clob_sdk import Client
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
@@ -216,33 +218,24 @@ def calculate_target_price(
 
 async def check_usdt_balance(
     client: Client, required_amount: float
-) -> Tuple[bool, dict]:
-    """Checks if USDT balance is sufficient."""
+) -> Tuple[bool, float]:
+    """
+    Checks if USDT balance is sufficient.
+
+    Args:
+        client: Клиент Opinion SDK
+        required_amount: Требуемая сумма в USDT
+
+    Returns:
+        Tuple[bool, float]: (достаточно ли баланса, текущий баланс USDT)
+    """
     try:
-        response = client.get_my_balances()
-
-        if response.errno != 0:
-            return False, {}
-
-        balance_data = (
-            response.result
-            if not hasattr(response.result, "data")
-            else response.result.data
-        )
-
-        available = 0.0
-        if hasattr(balance_data, "balances") and balance_data.balances:
-            for balance in balance_data.balances:
-                available += float(getattr(balance, "available_balance", 0))
-        elif hasattr(balance_data, "available_balance"):
-            available = float(balance_data.available_balance)
-        elif hasattr(balance_data, "available"):
-            available = float(balance_data.available)
-
-        return available >= required_amount, balance_data
+        available = await get_usdt_balance(client)
+        return available >= required_amount, available
     except Exception as e:
         logger.error(f"Error checking balance: {e}")
-        return False, {}
+        logger.error(traceback.format_exc())
+        return False, 0.0
 
 
 async def place_order(
@@ -688,13 +681,15 @@ async def process_amount(message: Message, state: FSMContext):
         client = data["client"]
 
         # Check balance
-        has_balance, _ = await check_usdt_balance(client, amount)
+        has_balance, current_balance = await check_usdt_balance(client, amount)
 
         if not has_balance:
             builder = InlineKeyboardBuilder()
             builder.button(text="✖️ Cancel", callback_data="cancel")
             await message.answer(
                 f"""❌ Insufficient USDT balance to place an order for {amount} USDT.
+
+💰 Available balance: {current_balance:.6f} USDT
 
 Enter a different amount:""",
                 reply_markup=builder.as_markup(),
@@ -1089,6 +1084,7 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
+Use the /check_account command to view account statistics.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )

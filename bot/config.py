@@ -34,3 +34,6 @@ settings = Settings()
 
 # Константы для работы с рынками
 TICK_SIZE = 0.001  # Размер тика для цен на Opinion.trade
+
+# Адрес контракта USDT на BNB Chain
+USDT_CONTRACT_ADDRESS = "0x55d398326f99059ff775485246999027b3197955"

@@ -192,6 +192,7 @@ async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManage
     await callback.message.answer(
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
+Use the /check_account command to view account statistics.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )
