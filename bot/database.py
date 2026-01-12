@@ -709,3 +709,108 @@ async def export_all_tables_to_zip() -> bytes:
 
     zip_buffer.seek(0)
     return zip_buffer.read()
+
+
+async def get_database_statistics() -> dict:
+    """
+    Получает статистику по базе данных.
+
+    Returns:
+        dict: Словарь со статистикой:
+        {
+            'users': {
+                'total': int,
+                'with_orders': int,
+                'with_active_orders': int
+            },
+            'orders': {
+                'total': int,
+                'unique_markets': int,
+                'by_status': {
+                    'FILLED': {'count': int, 'amount': float},
+                    'OPEN': {'count': int, 'amount': float},
+                    'CANCELLED': {'count': int, 'amount': float},
+                    'EXPIRED': {'count': int, 'amount': float},
+                    'INVALIDATED': {'count': int, 'amount': float}
+                },
+                'total_amount': float,
+                'average_amount': float
+            }
+        }
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Статистика по пользователям
+        async with conn.execute("SELECT COUNT(*) FROM users") as cursor:
+            total_users = (await cursor.fetchone())[0]
+
+        async with conn.execute(
+            "SELECT COUNT(DISTINCT telegram_id) FROM orders"
+        ) as cursor:
+            users_with_orders = (await cursor.fetchone())[0]
+
+        async with conn.execute(
+            "SELECT COUNT(DISTINCT telegram_id) FROM orders WHERE status IN ('pending', 'OPEN')"
+        ) as cursor:
+            users_with_active_orders = (await cursor.fetchone())[0]
+
+        # Статистика по ордерам
+        async with conn.execute("SELECT COUNT(*) FROM orders") as cursor:
+            total_orders = (await cursor.fetchone())[0]
+
+        async with conn.execute(
+            "SELECT COUNT(DISTINCT market_id) FROM orders"
+        ) as cursor:
+            unique_markets = (await cursor.fetchone())[0]
+
+        # Статистика по статусам (маппим старые статусы на новые)
+        # pending -> OPEN, finished -> FILLED, canceled -> CANCELLED
+        status_mapping = {
+            "pending": "OPEN",
+            "finished": "FILLED",
+            "canceled": "CANCELLED",
+            "OPEN": "OPEN",
+            "FILLED": "FILLED",
+            "CANCELLED": "CANCELLED",
+        }
+
+        orders_by_status = {
+            "FILLED": {"count": 0, "amount": 0.0},
+            "OPEN": {"count": 0, "amount": 0.0},
+            "CANCELLED": {"count": 0, "amount": 0.0},
+        }
+
+        # Получаем все ордера со статусами и суммами
+        async with conn.execute("SELECT status, amount FROM orders") as cursor:
+            rows = await cursor.fetchall()
+
+        total_amount = 0.0
+        for status, amount in rows:
+            # Нормализуем статус (приводим к нижнему регистру для маппинга)
+            status_str = str(status).lower() if status else ""
+            # Маппим статус
+            mapped_status = status_mapping.get(status_str, "CANCELLED")
+            if mapped_status not in orders_by_status:
+                # Неизвестный статус - считаем как отмененный
+                mapped_status = "CANCELLED"
+
+            orders_by_status[mapped_status]["count"] += 1
+            orders_by_status[mapped_status]["amount"] += float(amount or 0)
+            total_amount += float(amount or 0)
+
+        # Средняя сумма ордера
+        average_amount = total_amount / total_orders if total_orders > 0 else 0.0
+
+        return {
+            "users": {
+                "total": total_users,
+                "with_orders": users_with_orders,
+                "with_active_orders": users_with_active_orders,
+            },
+            "orders": {
+                "total": total_orders,
+                "unique_markets": unique_markets,
+                "by_status": orders_by_status,
+                "total_amount": total_amount,
+                "average_amount": average_amount,
+            },
+        }

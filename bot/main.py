@@ -10,6 +10,8 @@
 import asyncio
 import logging
 
+# Импортируем локальные модули
+from admin import admin_router
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,17 +19,14 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, StartMode, setup_dialogs
 from client_factory import setup_proxy
-
-# Импортируем локальные модули
 from config import settings
-from database import delete_user, export_all_tables_to_zip, get_user, init_database
+from database import get_user, init_database
 from dotenv import load_dotenv
 from help_text import HELP_TEXT, HELP_TEXT_CN, HELP_TEXT_ENG
-from invites import get_invites_statistics, get_unused_invites
 from logger_config import setup_root_logger
 from market_router import market_router
 from orders_dialog import OrdersSG, orders_dialog
@@ -62,157 +61,9 @@ class SupportStates(StatesGroup):
     waiting_support_message = State()
 
 
-class DeleteUserStates(StatesGroup):
-    """States for delete user command."""
-
-    waiting_telegram_id = State()
-
-
 # ============================================================================
 # Обработчики команд
 # ============================================================================
-
-
-@router.message(Command("get_db"))
-async def cmd_get_db(message: Message):
-    """Обработчик команды /get_db - экспорт всех таблиц базы данных в ZIP архив (только для администратора)."""
-    logger.info(f"Команда /get_db от пользователя {message.from_user.id}")
-    # Проверяем права администратора
-    if message.from_user.id != settings.admin_telegram_id:
-        return
-
-    try:
-        # Экспортируем все таблицы в ZIP архив
-        zip_content = await export_all_tables_to_zip()
-
-        # Создаем файл для отправки
-        zip_file = BufferedInputFile(zip_content, filename="database_export.zip")
-
-        await message.answer_document(
-            document=zip_file, caption="📊 Database export (all tables)"
-        )
-        logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
-    except Exception as e:
-        logger.error(f"Ошибка экспорта базы данных: {e}")
-        await message.answer(f"""❌ Error exporting database: {e}""")
-
-
-@router.message(Command("get_invites"))
-async def cmd_get_invites(message: Message):
-    """Обработчик команды /get_invites - получение 10 неиспользованных инвайтов (только для администратора)."""
-    logger.info(f"Команда /get_invites от пользователя {message.from_user.id}")
-    # Проверяем права администратора
-    if message.from_user.id != settings.admin_telegram_id:
-        return
-
-    try:
-        # Получаем статистику
-        stats = await get_invites_statistics()
-
-        # Получаем 10 неиспользованных инвайтов (создаст новые если нужно)
-        invites = await get_unused_invites(10)
-
-        # Формируем сообщение со статистикой и инвайтами
-        stats_text = f"""📊 <b>Invites Statistics:</b>
-• Total: {stats["total"]}
-• Used: {stats["used"]}
-• Unused: {stats["unused"]}
-
-📋 <b>10 Unused Invites (ID - Code):</b>
-"""
-
-        invites_list = []
-        for invite in invites:
-            invites_list.append(f"{invite['id']} - <code>{invite['invite']}</code>")
-
-        invites_text = "\n".join(invites_list)
-
-        full_message = stats_text + invites_text
-
-        await message.answer(full_message)
-        logger.info(f"Администратор {message.from_user.id} получил список инвайтов")
-    except Exception as e:
-        logger.error(f"Ошибка получения инвайтов: {e}")
-        await message.answer(f"""❌ Error getting invites: {e}""")
-
-
-@router.message(Command("delete_user"))
-async def cmd_delete_user(message: Message, state: FSMContext):
-    """Обработчик команды /delete_user - удаление пользователя из БД (только для администратора)."""
-    logger.info(f"Команда /delete_user от пользователя {message.from_user.id}")
-    # Проверяем права администратора
-    if message.from_user.id != settings.admin_telegram_id:
-        return
-
-    await message.answer(
-        """🗑️ <b>Delete User</b>
-Please enter the Telegram ID of the user you want to delete.
-The user and all their orders will be removed from the database, allowing them to register again."""
-    )
-    await state.set_state(DeleteUserStates.waiting_telegram_id)
-
-
-@router.message(DeleteUserStates.waiting_telegram_id)
-async def process_delete_user_telegram_id(message: Message, state: FSMContext):
-    """Обработчик ввода Telegram ID для удаления пользователя."""
-    # Проверяем права администратора
-    if message.from_user.id != settings.admin_telegram_id:
-        await state.clear()
-        return
-
-    try:
-        # Пытаемся преобразовать введенный текст в число
-        telegram_id = int(message.text.strip())
-    except ValueError:
-        await message.answer(
-            """❌ Invalid Telegram ID format. Please enter a numeric ID.
-Example: 123456789
-
-Please try again:"""
-        )
-        return
-
-    # Проверяем, существует ли пользователь
-    user = await get_user(telegram_id)
-    if not user:
-        await message.answer(
-            f"""❌ User with Telegram ID <code>{telegram_id}</code> not found in database.
-Please check the ID and try again:"""
-        )
-        await state.clear()
-        return
-
-    # Удаляем пользователя
-    try:
-        deleted = await delete_user(telegram_id)
-        if deleted:
-            username = user.get("username", "N/A")
-            await message.answer(
-                f"""✅ User deleted successfully!
-
-📋 <b>Deleted User Info:</b>
-• Telegram ID: <code>{telegram_id}</code>
-• Username: @{username if username != "N/A" else "N/A"}
-
-The user and all their orders have been removed from the database.
-They can now register again using /start."""
-            )
-            logger.info(
-                f"Администратор {message.from_user.id} удалил пользователя {telegram_id}"
-            )
-        else:
-            await message.answer(
-                f"""❌ Failed to delete user with Telegram ID <code>{telegram_id}</code>.
-Please try again:"""
-            )
-    except Exception as e:
-        logger.error(f"Ошибка при удалении пользователя {telegram_id}: {e}")
-        await message.answer(
-            f"""❌ Error deleting user: {e}
-Please try again:"""
-        )
-    finally:
-        await state.clear()
 
 
 @router.message(Command("orders"))
@@ -426,7 +277,8 @@ async def main():
     # Регистрируем роутеры
     dp.include_router(start_router)  # User registration router
     dp.include_router(market_router)  # Market order placement router
-    dp.include_router(router)  # Main router (orders, get_db, etc.)
+    dp.include_router(admin_router)  # Admin commands router
+    dp.include_router(router)  # Main router (orders, help, support, etc.)
 
     # Запускаем фоновую задачу синхронизации ордеров
     asyncio.create_task(background_sync_task())

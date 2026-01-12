@@ -8,3 +8,5 @@ develop/
 .git/credentials
 logs/
 *.log
+CHANGES.md
+deploy.sh
