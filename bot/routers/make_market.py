@@ -19,12 +19,17 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
 from opinion.opinion_api_wrapper import get_usdt_balance
-from service.config import TICK_SIZE
-from service.database import get_opinion_account, get_user, get_user_accounts, save_order
 from opinion_clob_sdk import Client
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
+from service.config import TICK_SIZE
+from service.database import (
+    get_opinion_account,
+    get_user,
+    get_user_accounts,
+    save_order,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +44,10 @@ class MarketOrderStates(StatesGroup):
     waiting_account_selection = State()  # Выбор аккаунта (первый шаг)
     waiting_url = State()
     waiting_submarket = State()  # For submarket selection in categorical markets
-    waiting_amount = State()
     waiting_side = State()
-    waiting_offset_ticks = State()
     waiting_direction = State()
+    waiting_amount = State()
+    waiting_offset_ticks = State()
     waiting_reposition_threshold = State()  # Порог отклонения для перестановки ордера
     waiting_confirm = State()
 
@@ -649,16 +654,23 @@ Possible reasons:
     # Format full message with empty line between blocks
     market_info_text = "\n\n".join(market_info_parts) if market_info_parts else ""
 
+    # Create keyboard for side selection
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ YES", callback_data="side_yes")
+    builder.button(text="❌ NO", callback_data="side_no")
+    builder.button(text="✖️ Cancel", callback_data="cancel")
+    builder.adjust(2)
+
     await message.answer(
         f"""📋 Market Found: {market.market_title}
 📊 Market ID: {market_id}
 
 {market_info_text}
 
-💰 Enter the amount for farming (in USDT, e.g. 10):""",
+📈 Select side:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(MarketOrderStates.waiting_amount)
+    await state.set_state(MarketOrderStates.waiting_side)
 
 
 @market_router.callback_query(
@@ -688,7 +700,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
             return
 
         # Get full information about selected submarket
-        client = data["client"]
+        client = data.get("client")
         await callback.message.edit_text(
             f"""📊 Getting submarket information: {selected_submarket["title"]}..."""
         )
@@ -749,41 +761,157 @@ async def process_amount(message: Message, state: FSMContext):
             )
             return
 
+        await state.update_data(amount=amount)
+
         data = await state.get_data()
-        client = data["client"]
 
-        # Check balance
-        has_balance, current_balance = await check_usdt_balance(client, amount)
+        # Get orderbook data for offset input
+        token_name = data.get("token_name")
+        current_price = data.get("current_price")
+        direction = data.get("direction")
+        client = data.get("client")
 
-        if not has_balance:
-            builder = InlineKeyboardBuilder()
-            builder.button(text="✖️ Cancel", callback_data="cancel")
-            await message.answer(
-                f"""❌ Insufficient USDT balance to place an order for {amount} USDT.
+        # Check balance only for BUY orders
+        if direction == "BUY":
+            has_balance, current_balance = await check_usdt_balance(client, amount)
+
+            if not has_balance:
+                builder = InlineKeyboardBuilder()
+                builder.button(text="✖️ Cancel", callback_data="cancel")
+                await message.answer(
+                    f"""❌ Insufficient USDT balance to place a BUY order for {amount} USDT.
 
 💰 Available balance: {current_balance:.6f} USDT
 
 Enter a different amount:""",
-                reply_markup=builder.as_markup(),
-            )
+                    reply_markup=builder.as_markup(),
+                )
+                return
+
+        # Get orderbook based on selected side
+        if token_name == "YES":
+            orderbook = data.get("yes_orderbook")
+        else:
+            orderbook = data.get("no_orderbook")
+
+        if not orderbook:
+            await message.answer("❌ Failed to get orderbook for selected token")
+            await state.clear()
             return
 
-        await state.update_data(amount=amount)
+        # Extract bids and asks from orderbook
+        bids = orderbook.bids if hasattr(orderbook, "bids") else []
+        asks = orderbook.asks if hasattr(orderbook, "asks") else []
 
-        # Create keyboard for side selection
+        # Sort bids by descending price (highest first)
+        sorted_bids = []
+        if bids and len(bids) > 0:
+            for bid in bids:
+                if hasattr(bid, "price"):
+                    try:
+                        price = float(bid.price)
+                        sorted_bids.append((price, bid))
+                    except (ValueError, TypeError):
+                        continue
+            sorted_bids.sort(key=lambda x: x[0], reverse=True)
+
+        # Sort asks by ascending price (lowest first)
+        sorted_asks = []
+        if asks and len(asks) > 0:
+            for ask in asks:
+                if hasattr(ask, "price"):
+                    try:
+                        price = float(ask.price)
+                        sorted_asks.append((price, ask))
+                    except (ValueError, TypeError):
+                        continue
+            sorted_asks.sort(key=lambda x: x[0])
+
+        # Get best 5 bids (highest prices)
+        best_bids = []
+        for i, (price, bid) in enumerate(sorted_bids[:5]):
+            price_cents = price * 100
+            best_bids.append(price_cents)
+
+        # Get best 5 asks (lowest prices)
+        best_asks = []
+        for i, (price, ask) in enumerate(sorted_asks[:5]):
+            price_cents = price * 100
+            best_asks.append(price_cents)
+
+        # Find maximum distant bid (lowest of all bids)
+        last_bid = None
+        if sorted_bids:
+            last_bid_price = sorted_bids[-1][0]
+            last_bid = last_bid_price * 100
+
+        # Find maximum distant ask (highest of all asks)
+        last_ask = None
+        if sorted_asks:
+            last_ask_price = sorted_asks[-1][0]
+            last_ask = last_ask_price * 100
+
+        # Best bid (highest) - first in sorted list
+        best_bid = best_bids[0] if best_bids else None
+
+        if not best_bid:
+            await message.answer("❌ No bids found in orderbook")
+            await state.clear()
+            return
+
+        # Calculate maximum tick values for BUY and SELL
+        tick_size = TICK_SIZE
+        MIN_PRICE = 0.001
+        MAX_PRICE = 0.999
+
+        # For BUY: so price doesn't become < MIN_PRICE (0.001)
+        max_offset_buy = int((current_price - MIN_PRICE) / tick_size)
+
+        # For SELL: so price doesn't become > MAX_PRICE (0.999)
+        max_offset_sell = int((MAX_PRICE - current_price) / tick_size)
+
+        # Save orderbook processing results to state
+        await state.update_data(
+            tick_size=tick_size,
+            max_offset_buy=max_offset_buy,
+            max_offset_sell=max_offset_sell,
+            best_bid=best_bid,
+        )
+
+        # Format text with best bids
+        bids_text = "<b>Best 5 bids:</b>\n"
+        for i, bid_price in enumerate(best_bids, 1):
+            bids_text += f"{i}. {bid_price:.1f} ¢\n"
+        if last_bid and last_bid not in best_bids:
+            bids_text += f"...\n{last_bid:.1f} ¢\n"
+
+        # Format text with best asks
+        asks_text = "<b>Best 5 asks:</b>\n"
+        for i, ask_price in enumerate(best_asks, 1):
+            asks_text += f"{i}. {ask_price:.1f} ¢\n"
+        if last_ask and last_ask not in best_asks:
+            asks_text += f"...\n{last_ask:.1f} ¢\n"
+
+        # Create keyboard with "Cancel" button
         builder = InlineKeyboardBuilder()
-        builder.button(text="✅ YES", callback_data="side_yes")
-        builder.button(text="❌ NO", callback_data="side_no")
         builder.button(text="✖️ Cancel", callback_data="cancel")
-        builder.adjust(2)
+
+        # Convert price to cents for display
+        current_price_cents = current_price * 100
+        current_price_str = f"{current_price_cents:.2f}".rstrip("0").rstrip(".")
 
         await message.answer(
-            f"""✅ USDT balance is sufficient to place a BUY order for {amount} USDT
+            f"""✅ Amount: {amount} USDT
 
-📈 Select side:""",
+💵 Current price: {current_price_str}¢
+
+{bids_text}
+{asks_text}
+Set the price offset (in ¢) relative to the best bid ({best_bid:.1f}¢). 
+For example <code>0.8</code>:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_side)
+        await state.set_state(MarketOrderStates.waiting_offset_ticks)
     except ValueError:
         builder = InlineKeyboardBuilder()
         builder.button(text="✖️ Cancel", callback_data="cancel")
@@ -803,15 +931,15 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
 
     if side == "YES":
-        token_id = data["yes_token_id"]
+        token_id = data.get("yes_token_id")
         token_name = "YES"
-        current_price = data["yes_info"]["mid_price"]
-        orderbook = data.get("yes_orderbook")
+        yes_info = data.get("yes_info", {})
+        current_price = yes_info.get("mid_price") if yes_info else None
     else:
-        token_id = data["no_token_id"]
+        token_id = data.get("no_token_id")
         token_name = "NO"
-        current_price = data["no_info"]["mid_price"]
-        orderbook = data.get("no_orderbook")
+        no_info = data.get("no_info", {})
+        current_price = no_info.get("mid_price") if no_info else None
 
     if not current_price:
         await callback.message.answer(
@@ -821,126 +949,34 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    if not orderbook:
-        await callback.message.answer("❌ Failed to get orderbook for selected token")
-        await state.clear()
-        await callback.answer()
-        return
-
-    # Extract bids and asks from orderbook
-    bids = orderbook.bids if hasattr(orderbook, "bids") else []
-    asks = orderbook.asks if hasattr(orderbook, "asks") else []
-
-    # Sort bids by descending price (highest first)
-    sorted_bids = []
-    if bids and len(bids) > 0:
-        for bid in bids:
-            if hasattr(bid, "price"):
-                try:
-                    price = float(bid.price)
-                    sorted_bids.append((price, bid))
-                except (ValueError, TypeError):
-                    continue
-        sorted_bids.sort(key=lambda x: x[0], reverse=True)
-
-    # Sort asks by ascending price (lowest first)
-    sorted_asks = []
-    if asks and len(asks) > 0:
-        for ask in asks:
-            if hasattr(ask, "price"):
-                try:
-                    price = float(ask.price)
-                    sorted_asks.append((price, ask))
-                except (ValueError, TypeError):
-                    continue
-        sorted_asks.sort(key=lambda x: x[0])
-
-    # Get best 5 bids (highest prices)
-    best_bids = []
-    for i, (price, bid) in enumerate(sorted_bids[:5]):
-        price_cents = price * 100
-        best_bids.append(price_cents)
-
-    # Get best 5 asks (lowest prices)
-    best_asks = []
-    for i, (price, ask) in enumerate(sorted_asks[:5]):
-        price_cents = price * 100
-        best_asks.append(price_cents)
-
-    # Find maximum distant bid (lowest of all bids)
-    last_bid = None
-    if sorted_bids:
-        last_bid_price = sorted_bids[-1][0]
-        last_bid = last_bid_price * 100
-
-    # Find maximum distant ask (highest of all asks)
-    last_ask = None
-    if sorted_asks:
-        last_ask_price = sorted_asks[-1][0]
-        last_ask = last_ask_price * 100
-
-    # Best bid (highest) - first in sorted list
-    best_bid = best_bids[0] if best_bids else None
-
-    if not best_bid:
-        await callback.message.answer("❌ No bids found in orderbook")
-        await state.clear()
-        await callback.answer()
-        return
-
-    # Calculate maximum tick values for BUY and SELL
-    tick_size = TICK_SIZE
-    MIN_PRICE = 0.001
-    MAX_PRICE = 0.999
-
-    # For BUY: so price doesn't become < MIN_PRICE (0.001)
-    max_offset_buy = int((current_price - MIN_PRICE) / tick_size)
-
-    # For SELL: so price doesn't become > MAX_PRICE (0.999)
-    max_offset_sell = int((MAX_PRICE - current_price) / tick_size)
-
-    min_offset = 0
-
+    # Save only basic token data - orderbook processing will be done later when needed
     await state.update_data(
         token_id=token_id,
         token_name=token_name,
         current_price=current_price,
-        tick_size=tick_size,
-        max_offset_buy=max_offset_buy,
-        max_offset_sell=max_offset_sell,
-        best_bid=best_bid,
     )
 
-    # Format text with best bids
-    bids_text = "Best 5 bids:\n"
-    for i, bid_price in enumerate(best_bids, 1):
-        bids_text += f"{i}. {bid_price:.1f} ¢\n"
-    if last_bid and last_bid not in best_bids:
-        bids_text += f"...\n{last_bid:.1f} ¢\n"
-
-    # Format text with best asks
-    asks_text = "Best 5 asks:\n"
-    for i, ask_price in enumerate(best_asks, 1):
-        asks_text += f"{i}. {ask_price:.1f} ¢\n"
-    if last_ask and last_ask not in best_asks:
-        asks_text += f"...\n{last_ask:.1f} ¢\n"
-
-    # Create keyboard with "Cancel" button
+    # Create keyboard for direction selection
     builder = InlineKeyboardBuilder()
+    builder.button(text="📈 BUY (buy, below current price)", callback_data="dir_buy")
+    builder.button(text="📉 SELL (sell, above current price)", callback_data="dir_sell")
     builder.button(text="✖️ Cancel", callback_data="cancel")
+    builder.adjust(1)
+
+    # Convert price to cents for display
+    current_price_cents = current_price * 100
+    current_price_str = f"{current_price_cents:.2f}".rstrip("0").rstrip(".")
 
     await callback.message.edit_text(
         f"""✅ Selected: {token_name}
 
-💵 Current price: {current_price:.6f} ({current_price * 100:.2f}¢)
+💵 Current price: {current_price_str}¢
 
-{bids_text}
-{asks_text}
-Set the price offset (in ¢) relative to the best bid ({best_bid:.1f}¢). For example 0.1:""",
+Select order direction:""",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_offset_ticks)
+    await state.set_state(MarketOrderStates.waiting_direction)
 
 
 @market_router.message(MarketOrderStates.waiting_offset_ticks)
@@ -954,7 +990,7 @@ async def process_offset_ticks(message: Message, state: FSMContext):
 
         data = await state.get_data()
         best_bid = data.get("best_bid")
-        current_price = data["current_price"]
+        current_price = data.get("current_price")
         tick_size = data.get("tick_size", TICK_SIZE)
         max_offset_buy = data.get("max_offset_buy", 0)
         max_offset_sell = data.get("max_offset_sell", 0)
@@ -996,51 +1032,85 @@ async def process_offset_ticks(message: Message, state: FSMContext):
 
         await state.update_data(offset_ticks=offset_ticks)
 
-        # Create keyboard for direction selection
-        builder = InlineKeyboardBuilder()
+        # Get direction from state (already selected earlier)
+        direction = data.get("direction")
+        if not direction:
+            await message.answer("❌ Error: Direction not found. Please start again.")
+            await state.clear()
+            return
 
-        # Check if BUY direction is valid with this number of ticks
-        if offset_ticks <= max_offset_buy:
-            builder.button(
-                text="📈 BUY (buy, below current price)", callback_data="dir_buy"
-            )
-
-        # Check if SELL direction is valid with this number of ticks
-        if offset_ticks <= max_offset_sell:
-            builder.button(
-                text="📉 SELL (sell, above current price)", callback_data="dir_sell"
-            )
-
-        builder.button(text="✖️ Cancel", callback_data="cancel")
-        builder.adjust(1)
-
-        # If no direction is available (shouldn't happen after validation)
-        if not builder.buttons:
+        # Validate offset for selected direction
+        if direction == "BUY" and offset_ticks > max_offset_buy:
             await message.answer(
-                f"❌ Error: Offset {offset_cents:.1f} cents is invalid for both directions.\n"
-                f"Enter a value from {min_offset} to {max_offset_cents:.1f} cents:"
+                f"❌ Offset is too large for BUY!\n\n"
+                f"• Maximum for BUY: {max_offset_buy * tick_size * 100:.1f} cents\n\n"
+                f"Enter a value from {min_offset} to {max_offset_buy * tick_size * 100:.1f} cents:",
+                reply_markup=builder.as_markup(),
             )
             return
+
+        if direction == "SELL" and offset_ticks > max_offset_sell:
+            await message.answer(
+                f"❌ Offset is too large for SELL!\n\n"
+                f"• Maximum for SELL: {max_offset_sell * tick_size * 100:.1f} cents\n\n"
+                f"Enter a value from {min_offset} to {max_offset_sell * tick_size * 100:.1f} cents:",
+                reply_markup=builder.as_markup(),
+            )
+            return
+
+        # Calculate target price based on direction and offset
+        target_price, is_valid = calculate_target_price(
+            current_price, direction, offset_ticks, tick_size
+        )
+
+        if not is_valid or target_price <= 0:
+            await message.answer(
+                f"❌ Error: Calculated price ({target_price:.6f}) is invalid!\n\n"
+                f"Offset {offset_ticks} ticks is too large for current price {current_price:.6f}.\n"
+                f"Enter a smaller offset:",
+                reply_markup=builder.as_markup(),
+            )
+            return
+
+        await state.update_data(target_price=target_price)
+
+        # Ask for reposition threshold
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✖️ Cancel", callback_data="cancel")
 
         # Convert prices to cents for display
         current_price_cents = current_price * 100
         tick_size_cents = tick_size * 100
+        target_price_cents = target_price * 100
 
         # Format without trailing zeros
         current_price_str = f"{current_price_cents:.2f}".rstrip("0").rstrip(".")
         tick_size_str = f"{tick_size_cents:.2f}".rstrip("0").rstrip(".")
+        target_price_str = f"{target_price_cents:.2f}".rstrip("0").rstrip(".")
 
         await message.answer(
             f"""✅ Offset: {offset_cents:.1f}¢ ({offset_ticks} ticks)
 
 📊 Settings:
 • Current price: {current_price_str}¢
+• Target price: {target_price_str}¢
 • Tick size: {tick_size_str}¢
 
-Select order direction:""",
+⚙️ <b>Reposition Threshold</b>
+
+Enter the price deviation threshold (in cents) for repositioning the order.
+
+For example:
+• <code>0.5</code> - reposition when price changes by 0.5 cents or more
+• <code>1.0</code> - reposition when price changes by 1 cent or more
+• <code>2.0</code> - reposition when price changes by 2 cents or more
+
+Recommended: <code>0.5</code> cents
+
+Enter the threshold:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_direction)
+        await state.set_state(MarketOrderStates.waiting_reposition_threshold)
     except ValueError:
         data = await state.get_data()
         tick_size = data.get("tick_size", TICK_SIZE)
@@ -1064,76 +1134,24 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
     direction = callback.data.split("_")[1].upper()
 
     data = await state.get_data()
-    current_price = data["current_price"]
-    offset_ticks = data["offset_ticks"]
-    tick_size = data.get("tick_size", TICK_SIZE)
-    token_name = data["token_name"]
-    max_offset_buy = data.get("max_offset_buy", 0)
-    max_offset_sell = data.get("max_offset_sell", 0)
-
-    # Additional validation: check offset is valid for selected direction
-    if direction == "BUY" and offset_ticks > max_offset_buy:
-        await callback.message.answer(
-            f"""❌ Error: Offset {offset_ticks} ticks is too large for BUY!
-
-Maximum for BUY: {max_offset_buy} ticks"""
-        )
-        await state.clear()
-        await callback.answer()
-        return
-
-    if direction == "SELL" and offset_ticks > max_offset_sell:
-        await callback.message.answer(
-            f"""❌ Error: Offset {offset_ticks} ticks is too large for SELL!
-
-Maximum for SELL: {max_offset_sell} ticks"""
-        )
-        await state.clear()
-        await callback.answer()
-        return
-
-    # Calculate target price
-    target_price, is_valid = calculate_target_price(
-        current_price, direction, offset_ticks, tick_size
-    )
-
-    if not is_valid or target_price <= 0:
-        await callback.message.answer(
-            f"""❌ Error: Calculated price ({target_price:.6f}) is invalid!
-
-Offset {offset_ticks} ticks is too large for current price {current_price:.6f}"""
-        )
-        await state.clear()
-        await callback.answer()
-        return
+    token_name = data.get("token_name")
 
     order_side = OrderSide.BUY if direction == "BUY" else OrderSide.SELL
 
-    await state.update_data(
-        direction=direction, order_side=order_side, target_price=target_price
-    )
+    await state.update_data(direction=direction, order_side=order_side)
 
-    # Ask for reposition threshold
+    # Ask for amount
     builder = InlineKeyboardBuilder()
     builder.button(text="✖️ Cancel", callback_data="cancel")
 
     await callback.message.edit_text(
-        """⚙️ <b>Reposition Threshold</b>
+        f"""✅ Selected direction: {direction} {token_name}
 
-Enter the price deviation threshold (in cents) for repositioning the order.
-
-For example:
-• <code>0.5</code> - reposition when price changes by 0.5 cents or more
-• <code>1.0</code> - reposition when price changes by 1 cent or more
-• <code>2.0</code> - reposition when price changes by 2 cents or more
-
-Recommended: <code>0.5</code> cents
-
-Enter the threshold:""",
+💰 Enter the amount for farming (in USDT, e.g. 10):""",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_reposition_threshold)
+    await state.set_state(MarketOrderStates.waiting_amount)
 
 
 @market_router.callback_query(F.data == "cancel")
@@ -1178,22 +1196,40 @@ async def process_reposition_threshold(message: Message, state: FSMContext):
             )
             return
 
-        # Save threshold to state
-        await state.update_data(reposition_threshold_cents=threshold_cents)
-
-        # Get all data for confirmation
+        # Get data to calculate offset for validation
         data = await state.get_data()
-        market = data["market"]
-        token_name = data["token_name"]
-        direction = data["direction"]
-        current_price = data["current_price"]
-        target_price = data["target_price"]
-        offset_ticks = data["offset_ticks"]
-        amount = data["amount"]
+        offset_ticks = data.get("offset_ticks")
         tick_size = data.get("tick_size", TICK_SIZE)
 
         # Convert offset from ticks to cents
         offset_cents = offset_ticks * tick_size * 100
+
+        # Validation: threshold must be less than offset
+        if threshold_cents >= offset_cents:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="✖️ Cancel", callback_data="cancel")
+            offset_cents_formatted = f"{offset_cents:.2f}".rstrip("0").rstrip(".")
+            threshold_cents_formatted = f"{threshold_cents:.2f}".rstrip("0").rstrip(".")
+            await message.answer(
+                f"""❌ Threshold ({threshold_cents_formatted}¢) must be less than offset ({offset_cents_formatted}¢).
+
+If threshold is greater than or equal to offset, the order will never be repositioned.
+
+Enter a threshold less than {offset_cents_formatted}¢:""",
+                reply_markup=builder.as_markup(),
+            )
+            return
+
+        # Save threshold to state
+        await state.update_data(reposition_threshold_cents=threshold_cents)
+
+        # Get all data for confirmation
+        market = data.get("market")
+        token_name = data.get("token_name")
+        direction = data.get("direction")
+        current_price = data.get("current_price")
+        target_price = data.get("target_price")
+        amount = data.get("amount")
 
         # Convert prices to cents and remove trailing zeros
         current_price_cents = current_price * 100
@@ -1246,20 +1282,29 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
     if confirm != "yes":
         await callback.message.edit_text("""❌ Order placement cancelled""")
         await state.clear()
-        await callback.answer()
+        try:
+            await callback.answer()
+        except Exception:
+            pass  # Ignore if query is too old
         return
 
     data = await state.get_data()
-    client = data["client"]
+    client = data.get("client")
 
     order_params = {
-        "market_id": data["market_id"],
-        "token_id": data["token_id"],
-        "side": data["order_side"],
-        "price": str(data["target_price"]),
-        "amount": data["amount"],
-        "token_name": data["token_name"],
+        "market_id": data.get("market_id"),
+        "token_id": data.get("token_id"),
+        "side": data.get("order_side"),
+        "price": str(data.get("target_price")),
+        "amount": data.get("amount"),
+        "token_name": data.get("token_name"),
     }
+
+    # Answer callback early to avoid "query is too old" error
+    try:
+        await callback.answer()
+    except Exception:
+        pass  # Ignore if query is too old
 
     await callback.message.edit_text("""🔄 Placing order...""")
 
@@ -1275,21 +1320,24 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                     """❌ Account not found. Please start again with /make_market."""
                 )
                 await state.clear()
-                await callback.answer()
+                try:
+                    await callback.answer()
+                except Exception:
+                    pass  # Ignore if query is too old
                 return
 
-            market_id = data["market_id"]
+            market_id = data.get("market_id")
             market = data.get("market")
             market_title = getattr(market, "market_title", None) if market else None
-            token_id = data["token_id"]
-            token_name = data["token_name"]
-            side = data["direction"]  # BUY or SELL
-            current_price = data["current_price"]
-            target_price = data["target_price"]
-            offset_ticks = data["offset_ticks"]
+            token_id = data.get("token_id")
+            token_name = data.get("token_name")
+            side = data.get("direction")  # BUY or SELL
+            current_price = data.get("current_price")
+            target_price = data.get("target_price")
+            offset_ticks = data.get("offset_ticks")
             tick_size = data.get("tick_size", TICK_SIZE)
-            offset_cents = offset_ticks * tick_size * 100
-            amount = data["amount"]
+            offset_cents = offset_ticks * tick_size * 100 if offset_ticks else 0
+            amount = data.get("amount")
             reposition_threshold_cents = data.get("reposition_threshold_cents", 0.5)
 
             # Сохраняем ордер в базу данных
@@ -1319,18 +1367,27 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
             f"""✅ <b>Order successfully placed!</b>
 
 📋 <b>Final Information:</b>
-• Side: {data["direction"]} {data["token_name"]}
-• Price: {data["target_price"]:.6f}
-• Amount: {data["amount"]} USDT
+• Side: {data.get("direction")} {data.get("token_name")}
+• Price: {data.get("target_price", 0):.6f}
+• Amount: {data.get("amount", 0)} USDT
 • Offset: {offset_cents:.2f}¢
 • Reposition threshold: {reposition_threshold_cents:.2f}¢
-• Order ID: <code>{order_id}</code>"""
+• Order ID: <code>{order_id}</code>
+
+📌 <b>Useful commands:</b>
+• /make_market - start a new farm
+• /orders - manage your orders
+• /check_account - view account statistics"""
         )
     else:
         error_text = f"""❌ <b>Failed to place order</b>
 
-{error_message if error_message else "Please check your balance and order parameters."}"""
+{error_message if error_message else "Please check your balance and order parameters."}
+
+📌 <b>Useful commands:</b>
+• /make_market - start a new farm
+• /orders - manage your orders
+• /check_account - view account statistics"""
         await callback.message.edit_text(error_text)
 
     await state.clear()
-    await callback.answer()
