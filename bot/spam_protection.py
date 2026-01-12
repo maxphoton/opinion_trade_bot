@@ -1,8 +1,10 @@
 """Middleware для защиты от спама."""
+
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Callable, Dict, Any
+from typing import Any, Callable, Dict
+
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import TelegramObject
 
@@ -20,10 +22,10 @@ class AntiSpamMiddleware(BaseMiddleware):
         self.user_blocked_until: Dict[int, float] = {}
 
     async def __call__(
-            self,
-            handler: Callable[[TelegramObject, Dict[str, Any]], Any],
-            event: TelegramObject,
-            data: Dict[str, Any]
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Any],
+        event: TelegramObject,
+        data: Dict[str, Any],
     ) -> Any:
         user = event.from_user
         if not user:
@@ -34,7 +36,9 @@ class AntiSpamMiddleware(BaseMiddleware):
 
         if uid in self.user_blocked_until and now < self.user_blocked_until[uid]:
             logger.warning(f"Пользователь {user.full_name} заблокирован за спам")
-            await self.bot.send_message(uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд.")
+            await self.bot.send_message(
+                uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд."
+            )
             return
 
         timestamps = self.user_spam_tracker[uid]
@@ -46,8 +50,12 @@ class AntiSpamMiddleware(BaseMiddleware):
         if len(timestamps) > self.limit:
             self.user_blocked_until[uid] = now + self.block_duration
             self.user_spam_tracker[uid].clear()
-            logger.warning(f"🔒 Пользователь {user.full_name} временно заблокирован за спам")
-            await self.bot.send_message(uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд.")
+            logger.warning(
+                f"🔒 Пользователь {user.full_name} временно заблокирован за спам"
+            )
+            await self.bot.send_message(
+                uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд."
+            )
             return
 
         return await handler(event, data)

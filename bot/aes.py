@@ -1,8 +1,7 @@
 import os
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from config import settings
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 def get_master_key() -> bytes:
@@ -25,5 +24,3 @@ def decrypt(ciphertext: bytes, nonce: bytes) -> str:
     aesgcm = AESGCM(key)
     plaintext = aesgcm.decrypt(nonce, ciphertext, None)
     return plaintext.decode("utf-8")
-
-
