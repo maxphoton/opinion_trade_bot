@@ -17,10 +17,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from client_factory import create_client
-from config import TICK_SIZE
-from database import get_user, save_order
-from opinion_api_wrapper import get_usdt_balance
+from opinion.client_factory import create_client
+from opinion.opinion_api_wrapper import get_usdt_balance
+from service.config import TICK_SIZE
+from service.database import get_opinion_account, get_user, get_user_accounts, save_order
 from opinion_clob_sdk import Client
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 class MarketOrderStates(StatesGroup):
     """States for the order placement process."""
 
+    waiting_account_selection = State()  # Выбор аккаунта (первый шаг)
     waiting_url = State()
     waiting_submarket = State()  # For submarket selection in categorical markets
     waiting_amount = State()
@@ -318,7 +319,8 @@ market_router = Router()
 async def cmd_make_market(message: Message, state: FSMContext):
     """Handler for /make_market command - start of order placement process."""
     logger.info(f"Команда /make_market от пользователя {message.from_user.id}")
-    user = await get_user(message.from_user.id)
+    telegram_id = message.from_user.id
+    user = await get_user(telegram_id)
 
     if not user:
         await message.answer(
@@ -326,17 +328,77 @@ async def cmd_make_market(message: Message, state: FSMContext):
         )
         return
 
-    # Create keyboard with "Cancel" button
+    # Получаем все аккаунты пользователя
+    accounts = await get_user_accounts(telegram_id)
+    if not accounts:
+        await message.answer(
+            """❌ You don't have any Opinion accounts yet.
+
+Use /add_account to add your first Opinion account."""
+        )
+        return
+
+    # Если аккаунт один, используем его автоматически
+    if len(accounts) == 1:
+        account_id = accounts[0]["account_id"]
+        await state.update_data(account_id=account_id)
+        # Переходим к следующему шагу - ввод URL
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✖️ Cancel", callback_data="cancel")
+        await message.answer(
+            """📊 Place a Limit Order
+
+Please enter the Opinion.trade market link:""",
+            reply_markup=builder.as_markup(),
+        )
+        await state.set_state(MarketOrderStates.waiting_url)
+        return
+
+    # Если аккаунтов несколько, показываем выбор
     builder = InlineKeyboardBuilder()
+    for account in accounts:
+        wallet = account["wallet_address"]
+        account_id = account["account_id"]
+        builder.button(
+            text=f"Account {account_id} ({wallet[:8]}...)",
+            callback_data=f"select_account_{account_id}",
+        )
     builder.button(text="✖️ Cancel", callback_data="cancel")
+    builder.adjust(1)
 
     await message.answer(
+        """📊 Place a Limit Order
+
+Select an account to use:""",
+        reply_markup=builder.as_markup(),
+    )
+    await state.set_state(MarketOrderStates.waiting_account_selection)
+
+
+@market_router.callback_query(F.data.startswith("select_account_"))
+async def process_account_selection(callback: CallbackQuery, state: FSMContext):
+    """Handles account selection."""
+    account_id_str = callback.data.replace("select_account_", "")
+    try:
+        account_id = int(account_id_str)
+    except ValueError:
+        await callback.answer("Invalid account ID", show_alert=True)
+        return
+
+    # Сохраняем account_id в state
+    await state.update_data(account_id=account_id)
+
+    # Переходим к следующему шагу - ввод URL
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✖️ Cancel", callback_data="cancel")
+    await callback.message.edit_text(
         """📊 Place a Limit Order
 
 Please enter the Opinion.trade market link:""",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(MarketOrderStates.waiting_url)
+    await callback.answer()
 
 
 @market_router.message(MarketOrderStates.waiting_url)
@@ -356,18 +418,28 @@ async def process_market_url(message: Message, state: FSMContext):
 
     is_categorical = market_type == "multi"
 
-    # Get user data and create client
-    user = await get_user(message.from_user.id)
-    if not user:
+    # Получаем account_id из state
+    data = await state.get_data()
+    account_id = data.get("account_id")
+    if not account_id:
         await message.answer(
-            """❌ User not found. Please register with /start first."""
+            """❌ Account not selected. Please start again with /make_market."""
+        )
+        await state.clear()
+        return
+
+    # Получаем данные аккаунта
+    account = await get_opinion_account(account_id)
+    if not account:
+        await message.answer(
+            """❌ Account not found. Please start again with /make_market."""
         )
         await state.clear()
         return
 
     # Создаем клиент с обработкой ошибок
     try:
-        client = create_client(user)
+        client = create_client(account)
     except Exception as e:
         # Генерируем код ошибки для сопоставления с логами
         error_str = str(e)
@@ -1196,7 +1268,16 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
     if success:
         # Save order to database
         try:
-            telegram_id = callback.from_user.id
+            account_id = data.get("account_id")
+            if not account_id:
+                logger.error("Account ID not found in state data")
+                await callback.message.edit_text(
+                    """❌ Account not found. Please start again with /make_market."""
+                )
+                await state.clear()
+                await callback.answer()
+                return
+
             market_id = data["market_id"]
             market = data.get("market")
             market_title = getattr(market, "market_title", None) if market else None
@@ -1213,7 +1294,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 
             # Сохраняем ордер в базу данных
             await save_order(
-                telegram_id=telegram_id,
+                account_id=account_id,
                 order_id=order_id,
                 market_id=market_id,
                 market_title=market_title,
@@ -1229,7 +1310,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                 reposition_threshold_cents=reposition_threshold_cents,
             )
             logger.info(
-                f"Order {order_id} successfully saved to DB for user {telegram_id}"
+                f"Order {order_id} successfully saved to DB for account {account_id}"
             )
         except Exception as e:
             logger.error(f"Error saving order to DB: {e}")

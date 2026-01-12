@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-from aes import decrypt, encrypt
+from service.aes import decrypt, encrypt
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -28,26 +28,45 @@ DB_PATH = Path(__file__).parent / "users.db"
 async def init_database():
     """Инициализирует базу данных SQLite."""
     async with aiosqlite.connect(DB_PATH) as conn:
-        # Таблица пользователей
+        # Таблица пользователей (упрощенная - только telegram_id, username)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 telegram_id INTEGER PRIMARY KEY,
                 username TEXT,
-                wallet_address TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Таблица аккаунтов Opinion
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS opinion_accounts (
+                account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                wallet_address_cipher BLOB NOT NULL,
                 wallet_nonce BLOB NOT NULL,
                 private_key_cipher BLOB NOT NULL,
                 private_key_nonce BLOB NOT NULL,
                 api_key_cipher BLOB NOT NULL,
                 api_key_nonce BLOB NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                proxy_cipher BLOB,
+                proxy_nonce BLOB,
+                proxy_status TEXT DEFAULT 'unknown',
+                proxy_last_check TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
             )
+        """)
+
+        # Создаем индекс для быстрого поиска аккаунтов по telegram_id
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_opinion_accounts_telegram_id ON opinion_accounts(telegram_id)
         """)
 
         # Таблица ордеров
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
+                account_id INTEGER NOT NULL,
                 order_id TEXT NOT NULL,
                 market_id INTEGER NOT NULL,
                 market_title TEXT,
@@ -62,13 +81,13 @@ async def init_database():
                 status TEXT DEFAULT 'pending',
                 reposition_threshold_cents REAL DEFAULT 0.5,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+                FOREIGN KEY (account_id) REFERENCES opinion_accounts(account_id)
             )
         """)
 
-        # Создаем индекс для быстрого поиска ордеров по telegram_id
+        # Создаем индекс для быстрого поиска ордеров по account_id
         await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_orders_telegram_id ON orders(telegram_id)
+            CREATE INDEX IF NOT EXISTS idx_orders_account_id ON orders(account_id)
         """)
 
         # Создаем индекс для поиска по order_id
@@ -180,72 +199,40 @@ async def get_user(telegram_id: int) -> Optional[dict]:
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
-            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT telegram_id, username, created_at FROM users WHERE telegram_id = ?",
+            (telegram_id,),
         ) as cursor:
             row = await cursor.fetchone()
 
     if not row:
         return None
 
-    # Расшифровываем данные
-    try:
-        wallet_address = decrypt(row[2], row[3])
-        private_key = decrypt(row[4], row[5])
-        api_key = decrypt(row[6], row[7])
-
-        return {
-            "telegram_id": row[0],
-            "username": row[1],
-            "wallet_address": wallet_address,
-            "private_key": private_key,
-            "api_key": api_key,
-        }
-    except Exception as e:
-        logger.error(f"Ошибка расшифровки данных пользователя {telegram_id}: {e}")
-        return None
+    return {
+        "telegram_id": row[0],
+        "username": row[1],
+        "created_at": row[2],
+    }
 
 
 async def save_user(
     telegram_id: int,
     username: Optional[str],
-    wallet_address: str,
-    private_key: str,
-    api_key: str,
 ):
     """
-    Сохраняет данные пользователя в базу данных с шифрованием.
+    Сохраняет данные пользователя в базу данных.
 
     Args:
         telegram_id: ID пользователя в Telegram
         username: Имя пользователя (опционально)
-        wallet_address: Адрес кошелька
-        private_key: Приватный ключ
-        api_key: API ключ
     """
     async with aiosqlite.connect(DB_PATH) as conn:
-        # Шифруем данные
-        wallet_cipher, wallet_nonce = encrypt(wallet_address)
-        private_key_cipher, private_key_nonce = encrypt(private_key)
-        api_key_cipher, api_key_nonce = encrypt(api_key)
-
-        # Сохраняем или обновляем пользователя
         await conn.execute(
             """
             INSERT OR REPLACE INTO users 
-            (telegram_id, username, wallet_address, wallet_nonce, 
-             private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (telegram_id, username)
+            VALUES (?, ?)
         """,
-            (
-                telegram_id,
-                username,
-                wallet_cipher,
-                wallet_nonce,
-                private_key_cipher,
-                private_key_nonce,
-                api_key_cipher,
-                api_key_nonce,
-            ),
+            (telegram_id, username),
         )
 
         await conn.commit()
@@ -253,7 +240,7 @@ async def save_user(
 
 
 async def save_order(
-    telegram_id: int,
+    account_id: int,
     order_id: str,
     market_id: int,
     market_title: Optional[str],
@@ -272,7 +259,7 @@ async def save_order(
     Сохраняет информацию об ордере в базу данных.
 
     Args:
-        telegram_id: ID пользователя в Telegram
+        account_id: ID аккаунта Opinion
         order_id: ID ордера на бирже
         market_id: ID рынка
         market_title: Название рынка
@@ -291,12 +278,12 @@ async def save_order(
         await conn.execute(
             """
             INSERT INTO orders 
-            (telegram_id, order_id, market_id, market_title, token_id, token_name, 
+            (account_id, order_id, market_id, market_title, token_id, token_name, 
              side, current_price, target_price, offset_ticks, offset_cents, amount, status, reposition_threshold_cents)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
-                telegram_id,
+                account_id,
                 order_id,
                 market_id,
                 market_title,
@@ -314,17 +301,15 @@ async def save_order(
         )
 
         await conn.commit()
-    logger.info(
-        f"Ордер {order_id} сохранен в базу данных для пользователя {telegram_id}"
-    )
+    logger.info(f"Ордер {order_id} сохранен в базу данных для аккаунта {account_id}")
 
 
-async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
+async def get_account_orders(account_id: int, status: Optional[str] = None) -> list:
     """
-    Получает список ордеров пользователя из базы данных.
+    Получает список ордеров аккаунта из базы данных.
 
     Args:
-        telegram_id: ID пользователя в Telegram
+        account_id: ID аккаунта Opinion
         status: Фильтр по статусу (pending/finished/canceled). Если None, возвращает все ордера.
 
     Returns:
@@ -333,7 +318,7 @@ async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> lis
     # Явно указываем колонки в правильном порядке
     columns = [
         "id",
-        "telegram_id",
+        "account_id",
         "order_id",
         "market_id",
         "market_title",
@@ -355,22 +340,87 @@ async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> lis
             async with conn.execute(
                 f"""
                 SELECT {", ".join(columns)} FROM orders 
-                WHERE telegram_id = ? AND status = ?
+                WHERE account_id = ? AND status = ?
                 ORDER BY created_at DESC
             """,
-                (telegram_id, status),
+                (account_id, status),
             ) as cursor:
                 rows = await cursor.fetchall()
         else:
             async with conn.execute(
                 f"""
                 SELECT {", ".join(columns)} FROM orders 
-                WHERE telegram_id = ?
+                WHERE account_id = ?
                 ORDER BY created_at DESC
             """,
-                (telegram_id,),
+                (account_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
+
+    orders = []
+    for row in rows:
+        order_dict = dict(zip(columns, row))
+        orders.append(order_dict)
+
+    return orders
+
+
+async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> list:
+    """
+    Получает список ордеров пользователя из базы данных (через аккаунты).
+
+    Args:
+        telegram_id: ID пользователя в Telegram
+        status: Фильтр по статусу (pending/finished/canceled). Если None, возвращает все ордера.
+
+    Returns:
+        list: Список словарей с данными ордеров
+    """
+    # Получаем все аккаунты пользователя
+    accounts = await get_user_accounts(telegram_id)
+    if not accounts:
+        return []
+
+    account_ids = [acc["account_id"] for acc in accounts]
+    placeholders = ",".join(["?"] * len(account_ids))
+
+    columns = [
+        "id",
+        "account_id",
+        "order_id",
+        "market_id",
+        "market_title",
+        "token_id",
+        "token_name",
+        "side",
+        "current_price",
+        "target_price",
+        "offset_ticks",
+        "offset_cents",
+        "amount",
+        "status",
+        "reposition_threshold_cents",
+        "created_at",
+    ]
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        if status:
+            query = f"""
+                SELECT {", ".join(columns)} FROM orders 
+                WHERE account_id IN ({placeholders}) AND status = ?
+                ORDER BY created_at DESC
+            """
+            params = (*account_ids, status)
+        else:
+            query = f"""
+                SELECT {", ".join(columns)} FROM orders 
+                WHERE account_id IN ({placeholders})
+                ORDER BY created_at DESC
+            """
+            params = account_ids
+
+        async with conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
 
     orders = []
     for row in rows:
@@ -393,7 +443,7 @@ async def get_order_by_id(order_id: str) -> Optional[dict]:
     # Явно указываем колонки в правильном порядке
     columns = [
         "id",
-        "telegram_id",
+        "account_id",
         "order_id",
         "market_id",
         "market_title",
@@ -486,9 +536,350 @@ async def get_all_users():
     return [row[0] for row in rows]
 
 
+async def save_opinion_account(
+    telegram_id: int,
+    wallet_address: str,
+    private_key: str,
+    api_key: str,
+    proxy_str: str,
+    proxy_status: str,
+) -> int:
+    """
+    Сохраняет аккаунт Opinion в базу данных с шифрованием.
+
+    Args:
+        telegram_id: ID пользователя в Telegram
+        wallet_address: Адрес кошелька
+        private_key: Приватный ключ
+        api_key: API ключ
+        proxy_str: Прокси в формате ip:port:login:password (обязательно)
+        proxy_status: Статус прокси ('working', 'failed', 'unknown')
+
+    Returns:
+        int: ID созданного аккаунта
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Шифруем данные
+        wallet_cipher, wallet_nonce = encrypt(wallet_address)
+        private_key_cipher, private_key_nonce = encrypt(private_key)
+        api_key_cipher, api_key_nonce = encrypt(api_key)
+        proxy_cipher, proxy_nonce = encrypt(proxy_str)
+
+        # Сохраняем аккаунт
+        cursor = await conn.execute(
+            """
+            INSERT INTO opinion_accounts 
+            (telegram_id, wallet_address_cipher, wallet_nonce, 
+             private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce,
+             proxy_cipher, proxy_nonce, proxy_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                telegram_id,
+                wallet_cipher,
+                wallet_nonce,
+                private_key_cipher,
+                private_key_nonce,
+                api_key_cipher,
+                api_key_nonce,
+                proxy_cipher,
+                proxy_nonce,
+                proxy_status,
+            ),
+        )
+
+        account_id = cursor.lastrowid
+        await conn.commit()
+    logger.info(f"Аккаунт Opinion {account_id} сохранен для пользователя {telegram_id}")
+    return account_id
+
+
+async def get_opinion_account(account_id: int) -> Optional[dict]:
+    """
+    Получает данные аккаунта Opinion из базы данных.
+
+    Args:
+        account_id: ID аккаунта Opinion
+
+    Returns:
+        dict: Словарь с данными аккаунта или None, если аккаунт не найден
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT account_id, telegram_id, wallet_address_cipher, wallet_nonce,
+                   private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce,
+                   proxy_cipher, proxy_nonce, proxy_status, proxy_last_check, created_at
+            FROM opinion_accounts WHERE account_id = ?
+            """,
+            (account_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+    if not row:
+        return None
+
+    # Расшифровываем данные
+    try:
+        wallet_address = decrypt(row[2], row[3])
+        private_key = decrypt(row[4], row[5])
+        api_key = decrypt(row[6], row[7])
+        proxy_str = decrypt(row[8], row[9])
+
+        return {
+            "account_id": row[0],
+            "telegram_id": row[1],
+            "wallet_address": wallet_address,
+            "private_key": private_key,
+            "api_key": api_key,
+            "proxy_str": proxy_str,
+            "proxy_status": row[10],
+            "proxy_last_check": row[11],
+            "created_at": row[12],
+        }
+    except Exception as e:
+        logger.error(f"Ошибка расшифровки данных аккаунта {account_id}: {e}")
+        return None
+
+
+async def get_user_accounts(telegram_id: int) -> list:
+    """
+    Получает список всех аккаунтов Opinion пользователя.
+
+    Args:
+        telegram_id: ID пользователя в Telegram
+
+    Returns:
+        list: Список словарей с данными аккаунтов
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT account_id, telegram_id, wallet_address_cipher, wallet_nonce,
+                   private_key_cipher, private_key_nonce, api_key_cipher, api_key_nonce,
+                   proxy_cipher, proxy_nonce, proxy_status, proxy_last_check, created_at
+            FROM opinion_accounts WHERE telegram_id = ?
+            ORDER BY created_at ASC
+            """,
+            (telegram_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    accounts = []
+    for row in rows:
+        try:
+            wallet_address = decrypt(row[2], row[3])
+            private_key = decrypt(row[4], row[5])
+            api_key = decrypt(row[6], row[7])
+            proxy_str = decrypt(row[8], row[9])
+
+            accounts.append(
+                {
+                    "account_id": row[0],
+                    "telegram_id": row[1],
+                    "wallet_address": wallet_address,
+                    "private_key": private_key,
+                    "api_key": api_key,
+                    "proxy_str": proxy_str,
+                    "proxy_status": row[10],
+                    "proxy_last_check": row[11],
+                    "created_at": row[12],
+                }
+            )
+        except Exception as e:
+            logger.error(f"Ошибка расшифровки данных аккаунта {row[0]}: {e}")
+            continue
+
+    return accounts
+
+
+async def update_proxy_status(
+    account_id: int, status: str, last_check: Optional[str] = None
+):
+    """
+    Обновляет статус прокси для аккаунта.
+
+    Args:
+        account_id: ID аккаунта Opinion
+        status: Статус прокси ('working', 'failed', 'unknown')
+        last_check: Время последней проверки (опционально, по умолчанию CURRENT_TIMESTAMP)
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        if last_check:
+            await conn.execute(
+                """
+                UPDATE opinion_accounts 
+                SET proxy_status = ?, proxy_last_check = ?
+                WHERE account_id = ?
+                """,
+                (status, last_check, account_id),
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE opinion_accounts 
+                SET proxy_status = ?, proxy_last_check = CURRENT_TIMESTAMP
+                WHERE account_id = ?
+                """,
+                (status, account_id),
+            )
+
+        await conn.commit()
+    logger.info(f"Статус прокси для аккаунта {account_id} обновлен на {status}")
+
+
+async def get_all_pending_orders_with_accounts() -> list:
+    """
+    Получает все pending ордера с JOIN к аккаунтам для синхронизации.
+
+    Returns:
+        list: Список словарей с данными ордеров и аккаунтов
+    """
+    columns = [
+        "o.id",
+        "o.account_id",
+        "o.order_id",
+        "o.market_id",
+        "o.market_title",
+        "o.token_id",
+        "o.token_name",
+        "o.side",
+        "o.current_price",
+        "o.target_price",
+        "o.offset_ticks",
+        "o.offset_cents",
+        "o.amount",
+        "o.status",
+        "o.reposition_threshold_cents",
+        "o.created_at",
+        "a.telegram_id",
+        "a.wallet_address_cipher",
+        "a.wallet_nonce",
+        "a.private_key_cipher",
+        "a.private_key_nonce",
+        "a.api_key_cipher",
+        "a.api_key_nonce",
+        "a.proxy_cipher",
+        "a.proxy_nonce",
+        "a.proxy_status",
+    ]
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            f"""
+            SELECT {", ".join(columns)}
+            FROM orders o
+            INNER JOIN opinion_accounts a ON o.account_id = a.account_id
+            WHERE o.status = 'pending'
+            ORDER BY a.account_id, o.created_at ASC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    result = []
+    for row in rows:
+        try:
+            # Расшифровываем данные аккаунта
+            wallet_address = decrypt(row[17], row[18])
+            private_key = decrypt(row[19], row[20])
+            api_key = decrypt(row[21], row[22])
+            proxy_str = decrypt(row[23], row[24])
+
+            result.append(
+                {
+                    "order": {
+                        "id": row[0],
+                        "account_id": row[1],
+                        "order_id": row[2],
+                        "market_id": row[3],
+                        "market_title": row[4],
+                        "token_id": row[5],
+                        "token_name": row[6],
+                        "side": row[7],
+                        "current_price": row[8],
+                        "target_price": row[9],
+                        "offset_ticks": row[10],
+                        "offset_cents": row[11],
+                        "amount": row[12],
+                        "status": row[13],
+                        "reposition_threshold_cents": row[14],
+                        "created_at": row[15],
+                    },
+                    "account": {
+                        "account_id": row[1],
+                        "telegram_id": row[16],
+                        "wallet_address": wallet_address,
+                        "private_key": private_key,
+                        "api_key": api_key,
+                        "proxy_str": proxy_str,
+                        "proxy_status": row[25],
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"Ошибка расшифровки данных для ордера {row[2]}: {e}")
+            continue
+
+    return result
+
+
+async def delete_opinion_account(account_id: int) -> bool:
+    """
+    Удаляет аккаунт Opinion (только если нет активных ордеров).
+
+    Args:
+        account_id: ID аккаунта Opinion
+
+    Returns:
+        bool: True если аккаунт был удален, False если аккаунт не найден или есть активные ордера
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        # Проверяем, существует ли аккаунт
+        async with conn.execute(
+            "SELECT account_id FROM opinion_accounts WHERE account_id = ?",
+            (account_id,),
+        ) as cursor:
+            account_exists = await cursor.fetchone()
+
+        if not account_exists:
+            logger.warning(f"Попытка удалить несуществующий аккаунт {account_id}")
+            return False
+
+        # Проверяем, есть ли активные ордера
+        async with conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE account_id = ? AND status = 'pending'",
+            (account_id,),
+        ) as cursor:
+            active_orders_count = (await cursor.fetchone())[0]
+
+        if active_orders_count > 0:
+            logger.warning(
+                f"Нельзя удалить аккаунт {account_id}: есть {active_orders_count} активных ордеров"
+            )
+            return False
+
+        # Удаляем все ордера аккаунта
+        async with conn.execute(
+            "DELETE FROM orders WHERE account_id = ?", (account_id,)
+        ) as cursor:
+            orders_deleted = cursor.rowcount
+
+        # Удаляем аккаунт
+        await conn.execute(
+            "DELETE FROM opinion_accounts WHERE account_id = ?", (account_id,)
+        )
+
+        await conn.commit()
+
+        logger.info(
+            f"Аккаунт {account_id} удален из БД (удалено {orders_deleted} ордеров)"
+        )
+        return True
+
+
 async def delete_user(telegram_id: int) -> bool:
     """
-    Удаляет пользователя, все его ордера и очищает использованные инвайты из базы данных.
+    Удаляет пользователя, все его аккаунты, ордера и очищает использованные инвайты из базы данных.
 
     Args:
         telegram_id: ID пользователя в Telegram
@@ -509,11 +900,26 @@ async def delete_user(telegram_id: int) -> bool:
             )
             return False
 
-        # Удаляем все ордера пользователя (CASCADE не настроен, удаляем вручную)
-        async with conn.execute(
-            "DELETE FROM orders WHERE telegram_id = ?", (telegram_id,)
-        ) as cursor:
-            orders_deleted = cursor.rowcount
+        # Получаем все аккаунты пользователя
+        accounts = await get_user_accounts(telegram_id)
+        account_ids = [acc["account_id"] for acc in accounts]
+
+        # Удаляем все ордера всех аккаунтов пользователя
+        orders_deleted = 0
+        if account_ids:
+            placeholders = ",".join(["?"] * len(account_ids))
+            async with conn.execute(
+                f"DELETE FROM orders WHERE account_id IN ({placeholders})", account_ids
+            ) as cursor:
+                orders_deleted = cursor.rowcount
+
+        # Удаляем все аккаунты пользователя
+        accounts_deleted = 0
+        if account_ids:
+            async with conn.execute(
+                "DELETE FROM opinion_accounts WHERE telegram_id = ?", (telegram_id,)
+            ) as cursor:
+                accounts_deleted = cursor.rowcount
 
         # Очищаем использованные инвайты пользователя (чтобы они снова стали доступны)
         async with conn.execute(
@@ -528,24 +934,27 @@ async def delete_user(telegram_id: int) -> bool:
         await conn.commit()
 
         logger.info(
-            f"Пользователь {telegram_id} удален из БД (удалено {orders_deleted} ордеров, очищено {invites_cleared} инвайтов)"
+            f"Пользователь {telegram_id} удален из БД (удалено {accounts_deleted} аккаунтов, {orders_deleted} ордеров, очищено {invites_cleared} инвайтов)"
         )
         return True
 
 
-async def check_wallet_address_exists(wallet_address: str) -> bool:
+async def check_wallet_address_exists(
+    wallet_address: str, telegram_id: Optional[int] = None
+) -> bool:
     """
-    Проверяет, существует ли уже пользователь с таким wallet_address.
+    Проверяет, существует ли уже аккаунт с таким wallet_address.
 
     Args:
         wallet_address: Адрес кошелька для проверки
+        telegram_id: ID пользователя (не используется, оставлен для обратной совместимости)
 
     Returns:
         bool: True если wallet_address уже существует, False если уникален
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
-            "SELECT wallet_address, wallet_nonce FROM users"
+            "SELECT wallet_address_cipher, wallet_nonce FROM opinion_accounts"
         ) as cursor:
             rows = await cursor.fetchall()
 
@@ -563,19 +972,22 @@ async def check_wallet_address_exists(wallet_address: str) -> bool:
     return False
 
 
-async def check_private_key_exists(private_key: str) -> bool:
+async def check_private_key_exists(
+    private_key: str, telegram_id: Optional[int] = None
+) -> bool:
     """
-    Проверяет, существует ли уже пользователь с таким private_key.
+    Проверяет, существует ли уже аккаунт с таким private_key.
 
     Args:
         private_key: Приватный ключ для проверки
+        telegram_id: ID пользователя (не используется, оставлен для обратной совместимости)
 
     Returns:
         bool: True если private_key уже существует, False если уникален
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
-            "SELECT private_key_cipher, private_key_nonce FROM users"
+            "SELECT private_key_cipher, private_key_nonce FROM opinion_accounts"
         ) as cursor:
             rows = await cursor.fetchall()
 
@@ -593,19 +1005,20 @@ async def check_private_key_exists(private_key: str) -> bool:
     return False
 
 
-async def check_api_key_exists(api_key: str) -> bool:
+async def check_api_key_exists(api_key: str, telegram_id: Optional[int] = None) -> bool:
     """
-    Проверяет, существует ли уже пользователь с таким api_key.
+    Проверяет, существует ли уже аккаунт с таким api_key.
 
     Args:
         api_key: API ключ для проверки
+        telegram_id: ID пользователя (не используется, оставлен для обратной совместимости)
 
     Returns:
         bool: True если api_key уже существует, False если уникален
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
-            "SELECT api_key_cipher, api_key_nonce FROM users"
+            "SELECT api_key_cipher, api_key_nonce FROM opinion_accounts"
         ) as cursor:
             rows = await cursor.fetchall()
 
@@ -617,6 +1030,39 @@ async def check_api_key_exists(api_key: str) -> bool:
         except Exception as e:
             logger.warning(
                 f"Ошибка при расшифровке api_key для проверки уникальности: {e}"
+            )
+            continue
+
+    return False
+
+
+async def check_proxy_exists(proxy_str: str) -> bool:
+    """
+    Проверяет, существует ли уже аккаунт с таким прокси.
+
+    Args:
+        proxy_str: Строка прокси в формате ip:port:login:password
+
+    Returns:
+        bool: True если прокси уже используется, False если уникален
+    """
+    if not proxy_str:
+        return False
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT proxy_cipher, proxy_nonce FROM opinion_accounts WHERE proxy_cipher IS NOT NULL"
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    for row in rows:
+        try:
+            existing_proxy = decrypt(row[0], row[1])
+            if existing_proxy == proxy_str:
+                return True
+        except Exception as e:
+            logger.warning(
+                f"Ошибка при расшифровке proxy для проверки уникальности: {e}"
             )
             continue
 
@@ -744,12 +1190,21 @@ async def get_database_statistics() -> dict:
             total_users = (await cursor.fetchone())[0]
 
         async with conn.execute(
-            "SELECT COUNT(DISTINCT telegram_id) FROM orders"
+            """
+            SELECT COUNT(DISTINCT a.telegram_id) 
+            FROM orders o
+            INNER JOIN opinion_accounts a ON o.account_id = a.account_id
+            """
         ) as cursor:
             users_with_orders = (await cursor.fetchone())[0]
 
         async with conn.execute(
-            "SELECT COUNT(DISTINCT telegram_id) FROM orders WHERE status IN ('pending', 'OPEN')"
+            """
+            SELECT COUNT(DISTINCT a.telegram_id) 
+            FROM orders o
+            INNER JOIN opinion_accounts a ON o.account_id = a.account_id
+            WHERE o.status IN ('pending', 'OPEN')
+            """
         ) as cursor:
             users_with_active_orders = (await cursor.fetchone())[0]
 

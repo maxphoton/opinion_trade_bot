@@ -66,15 +66,13 @@
 """
 
 import asyncio
+import logging
 import traceback
 from typing import Any, List, Optional
 
-from config import USDT_CONTRACT_ADDRESS
-from logger_config import setup_logger
+from service.config import USDT_CONTRACT_ADDRESS
 
-# Настройка логирования: используем тот же логгер, что и sync_orders,
-# так как opinion_api_wrapper используется в основном из sync_orders
-logger = setup_logger("opinion_api_wrapper", "sync_orders.log")
+logger = logging.getLogger(__name__)
 
 # Константы для статусов ордеров (числовые коды из API)
 ORDER_STATUS_PENDING = (

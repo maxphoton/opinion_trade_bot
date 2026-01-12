@@ -8,8 +8,13 @@ from aiogram_dialog import Dialog, DialogManager, Window
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import Back, Button, Group
 from aiogram_dialog.widgets.text import Const, Format
-from client_factory import create_client
-from database import get_order_by_id, get_user, get_user_orders, update_order_status
+from opinion.client_factory import create_client
+from service.database import (
+    get_account_orders,
+    get_order_by_id,
+    get_opinion_account,
+    update_order_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,37 +31,24 @@ class OrdersSG(StatesGroup):
 # Обработчики для списка ордеров
 async def get_orders_list_data(dialog_manager: DialogManager, **kwargs):
     """Данные для списка ордеров с пагинацией."""
-    # Получаем telegram_id из start_data (передается при запуске диалога)
-    telegram_id = (
-        dialog_manager.start_data.get("telegram_id")
+    # Получаем account_id из start_data (передается при запуске диалога)
+    account_id = (
+        dialog_manager.start_data.get("account_id")
         if dialog_manager.start_data
         else None
     )
 
-    # Если нет в start_data, получаем из события (fallback)
-    if not telegram_id:
-        event = dialog_manager.event
-        # В aiogram все события имеют from_user напрямую или через callback_query
-        if hasattr(event, "from_user") and event.from_user:
-            telegram_id = event.from_user.id
-        elif (
-            hasattr(event, "callback_query")
-            and event.callback_query
-            and event.callback_query.from_user
-        ):
-            telegram_id = event.callback_query.from_user.id
-
-    if not telegram_id:
+    if not account_id:
         return {
-            "list_text": "❌ Failed to determine user",
+            "list_text": "❌ Failed to determine account",
             "current_page": 0,
             "total_pages": 0,
             "has_prev": False,
             "has_next": False,
         }
 
-    # Получаем все ордера пользователя
-    all_orders = await get_user_orders(telegram_id)
+    # Получаем все ордера аккаунта
+    all_orders = await get_account_orders(account_id)
     total = len(all_orders)
 
     # Проверяем, есть ли pending ордера (не отмененные и не исполненные)
@@ -216,36 +208,45 @@ async def cancel_order_input_handler(
         await message.answer("❌ Please enter order ID.")
         return
 
-    # Получаем telegram_id напрямую из сообщения
-    telegram_id = message.from_user.id
+    # Получаем account_id из start_data
+    account_id = (
+        manager.start_data.get("account_id")
+        if manager.start_data
+        else None
+    )
 
-    # Проверяем, что ордер существует и принадлежит пользователю
+    if not account_id:
+        await message.answer("❌ Account not found.")
+        manager.dialog_data["cancel_mode"] = False
+        return
+
+    # Проверяем, что ордер существует и принадлежит аккаунту
     order = await get_order_by_id(order_id)
     if not order:
         await message.answer(f"❌ Order <code>{order_id}</code> not found in database.")
         manager.dialog_data["cancel_mode"] = False
         return
 
-    # Проверяем, что пользователь является владельцем ордера
-    if order.get("telegram_id") != telegram_id:
+    # Проверяем, что ордер принадлежит аккаунту
+    if order.get("account_id") != account_id:
         await message.answer(
-            "❌ You don't have permission to cancel this order. The order belongs to another user."
+            "❌ You don't have permission to cancel this order. The order belongs to another account."
         )
         logger.warning(
-            f"User {telegram_id} attempted to cancel another user's order {order_id} (owner: {order.get('telegram_id')})"
+            f"User attempted to cancel order {order_id} from different account (order account: {order.get('account_id')}, selected account: {account_id})"
         )
         manager.dialog_data["cancel_mode"] = False
         return
 
-    # Получаем данные пользователя для создания клиента
-    user = await get_user(telegram_id)
-    if not user:
-        await message.answer("❌ User not found in database.")
+    # Получаем данные аккаунта для создания клиента
+    account = await get_opinion_account(account_id)
+    if not account:
+        await message.answer("❌ Account not found in database.")
         manager.dialog_data["cancel_mode"] = False
         return
 
     # Создаем клиент
-    client = create_client(user)
+    client = create_client(account)
 
     try:
         # Отменяем ордер
@@ -257,20 +258,20 @@ async def cancel_order_input_handler(
             await message.answer(
                 f"✅ Order <code>{order_id}</code> successfully cancelled."
             )
-            logger.info(f"User {telegram_id} cancelled order {order_id}")
+            logger.info(f"Account {account_id} cancelled order {order_id}")
         else:
             # Получаем текст ошибки, если доступен
             errmsg = getattr(result, "errmsg", "Unknown error")
             error_message = f"❌ Failed to cancel order <code>{order_id}</code>.\n\nError code: {result.errno}\nError message: {errmsg}"
             await message.answer(error_message)
             logger.warning(
-                f"Failed to cancel order {order_id} for user {telegram_id}: errno={result.errno}, errmsg={errmsg}"
+                f"Failed to cancel order {order_id} for account {account_id}: errno={result.errno}, errmsg={errmsg}"
             )
     except Exception as e:
         await message.answer(
             f"❌ Error cancelling order <code>{order_id}</code>: {str(e)}"
         )
-        logger.error(f"Error cancelling order {order_id} for user {telegram_id}: {e}")
+        logger.error(f"Error cancelling order {order_id} for account {account_id}: {e}")
 
     # Отключаем режим отмены
     manager.dialog_data["cancel_mode"] = False
@@ -322,11 +323,19 @@ async def orders_search_handler(
         await message.answer("❌ Please enter a search query.")
         return
 
-    # Получаем telegram_id пользователя
-    telegram_id = message.from_user.id
+    # Получаем account_id из start_data
+    account_id = (
+        manager.start_data.get("account_id")
+        if manager.start_data
+        else None
+    )
 
-    # Получаем все ордера пользователя
-    all_orders = await get_user_orders(telegram_id)
+    if not account_id:
+        await message.answer("❌ Account not found.")
+        return
+
+    # Получаем все ордера аккаунта
+    all_orders = await get_account_orders(account_id)
 
     # Выполняем поиск
     search_results = []

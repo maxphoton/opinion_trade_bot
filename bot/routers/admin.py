@@ -10,14 +10,15 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message
-from config import settings
-from database import (
+from service.config import settings
+from service.database import (
     delete_user,
     export_all_tables_to_zip,
     get_database_statistics,
     get_user,
 )
-from invites import get_invites_statistics, get_unused_invites
+
+from routers.invites import get_invites_statistics, get_unused_invites
 
 logger = logging.getLogger(__name__)
 
@@ -61,29 +62,42 @@ async def cmd_get_db(message: Message):
         )
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
 
-        # Отправляем файлы логов отдельными файлами
+        # Отправляем последний файл лога (с учетом ротации)
         logs_dir = Path(__file__).parent.parent / "logs"
-        log_files = [
-            ("bot.log", "📝 Bot logs"),
-            ("sync_orders.log", "🔄 Sync orders logs"),
-        ]
+        log_filename = "bot.log"
 
-        for log_filename, caption in log_files:
-            log_path = logs_dir / log_filename
-            if log_path.exists():
-                try:
-                    log_content = log_path.read_bytes()
-                    log_file = BufferedInputFile(log_content, filename=log_filename)
-                    await message.answer_document(document=log_file, caption=caption)
-                    logger.info(f"Отправлен файл лога: {log_filename}")
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке файла лога {log_filename}: {e}")
-                    await message.answer(
-                        f"❌ Error sending log file {log_filename}: {e}"
-                    )
-            else:
-                logger.warning(f"Файл лога не найден: {log_path}")
-                await message.answer(f"⚠️ Log file not found: {log_filename}")
+        # Находим все файлы логов (bot.log, bot.log.1, bot.log.2 и т.д.)
+        log_files = []
+        base_log_path = logs_dir / log_filename
+
+        # Проверяем основной файл
+        if base_log_path.exists():
+            log_files.append(base_log_path)
+
+        # Проверяем ротированные файлы (bot.log.1, bot.log.2, ...)
+        for i in range(1, 11):  # До 10 файлов ротации
+            rotated_path = logs_dir / f"{log_filename}.{i}"
+            if rotated_path.exists():
+                log_files.append(rotated_path)
+
+        if log_files:
+            # Выбираем самый новый файл (по времени модификации)
+            latest_log = max(log_files, key=lambda p: p.stat().st_mtime)
+            try:
+                log_content = latest_log.read_bytes()
+                log_file = BufferedInputFile(log_content, filename=latest_log.name)
+                await message.answer_document(
+                    document=log_file, caption=f"📝 Latest bot log ({latest_log.name})"
+                )
+                logger.info(f"Отправлен последний файл лога: {latest_log.name}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке файла лога {latest_log.name}: {e}")
+                await message.answer(
+                    f"❌ Error sending log file {latest_log.name}: {e}"
+                )
+        else:
+            logger.warning(f"Файлы логов не найдены в {logs_dir}")
+            await message.answer("⚠️ Log files not found in logs directory")
 
     except Exception as e:
         logger.error(f"Ошибка экспорта базы данных: {e}")

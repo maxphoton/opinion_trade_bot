@@ -117,21 +117,13 @@ ARCHITECTURE:
 """
 
 import asyncio
+import logging
 import time
 import traceback
 from typing import Dict, List, Optional, Tuple
 
-from client_factory import create_client, setup_proxy
-from config import TICK_SIZE
-from database import (
-    get_all_users,
-    get_user,
-    get_user_orders,
-    update_order_in_db,
-    update_order_status,
-)
-from logger_config import setup_logger
-from opinion_api_wrapper import (
+from opinion.client_factory import create_client
+from opinion.opinion_api_wrapper import (
     ORDER_STATUS_CANCELED,
     ORDER_STATUS_FINISHED,
     get_order_by_id,
@@ -139,12 +131,17 @@ from opinion_api_wrapper import (
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
+from service.config import TICK_SIZE
+from service.database import (
+    get_account_orders,
+    get_all_pending_orders_with_accounts,
+    update_order_in_db,
+    update_order_status,
+)
 
-# Настройка логирования
-logger = setup_logger("sync_orders", "sync_orders.log")
+logger = logging.getLogger(__name__)
 
-# Настраиваем прокси
-setup_proxy()
+# Прокси настраивается индивидуально для каждого аккаунта в create_client
 
 
 def get_current_market_price(client, token_id: str, side: str) -> Optional[float]:
@@ -254,14 +251,15 @@ def calculate_new_target_price(
     return target
 
 
-async def process_user_orders(
-    telegram_id: int, bot=None
+async def process_account_orders(
+    account_id: int, account_data: dict, bot=None
 ) -> Tuple[List[str], List[Dict], List[Dict]]:
     """
-    Обрабатывает ордера пользователя и возвращает списки для отмены и размещения.
+    Обрабатывает ордера аккаунта и возвращает списки для отмены и размещения.
 
     Args:
-        telegram_id: ID пользователя в Telegram
+        account_id: ID аккаунта Opinion
+        account_data: Словарь с данными аккаунта (wallet_address, private_key, api_key, proxy_str, telegram_id)
         bot: Экземпляр aiogram Bot для отправки уведомлений (опционально)
 
     Returns:
@@ -271,28 +269,24 @@ async def process_user_orders(
     orders_to_place = []
     price_change_notifications = []  # Список уведомлений о смещении цены
 
-    # Получаем данные пользователя
-    user = await get_user(telegram_id)
-    if not user:
-        logger.warning(f"Пользователь {telegram_id} не найден в БД")
-        return orders_to_cancel, orders_to_place, price_change_notifications
+    telegram_id = account_data.get("telegram_id")
 
     # Создаем клиент
     try:
-        client = create_client(user)
+        client = create_client(account_data)
     except Exception as e:
-        logger.error(f"Ошибка создания клиента для пользователя {telegram_id}: {e}")
+        logger.error(f"Ошибка создания клиента для аккаунта {account_id}: {e}")
         return orders_to_cancel, orders_to_place, price_change_notifications
 
     # Получаем активные ордера из БД
-    db_orders = await get_user_orders(telegram_id, status="pending")
+    db_orders = await get_account_orders(account_id, status="pending")
 
     if not db_orders:
-        logger.info(f"У пользователя {telegram_id} нет активных ордеров")
+        logger.info(f"У аккаунта {account_id} нет активных ордеров")
         return orders_to_cancel, orders_to_place, price_change_notifications
 
     logger.info(
-        f"Обработка {len(db_orders)} активных ордеров для пользователя {telegram_id}"
+        f"Обработка {len(db_orders)} активных ордеров для аккаунта {account_id} (пользователь {telegram_id})"
     )
 
     # Обрабатываем каждый ордер
@@ -407,7 +401,7 @@ async def process_user_orders(
             )
 
             logger.info(f"Цена изменилась для ордера {order_id}:")
-            logger.info(f"  👤 User ID: {telegram_id}")
+            logger.info(f"  👤 Account ID: {account_id} (User: {telegram_id})")
             logger.info(f"  📊 Market ID: {market_id}")
             logger.info(f"  🪙 Token: {token_name} {side}")
             logger.info(f"  Старая текущая цена: {current_price_at_creation}")
@@ -434,7 +428,7 @@ async def process_user_orders(
                 # Добавляем ордер в список для отмены
                 orders_to_cancel.append(order_id)
                 logger.info(
-                    f"✅ Ордер {order_id} (User: {telegram_id}, Market: {market_id}) добавлен в список для отмены"
+                    f"✅ Ордер {order_id} (Account: {account_id}, Market: {market_id}) добавлен в список для отмены"
                 )
 
                 # Подготавливаем параметры нового ордера
@@ -450,17 +444,18 @@ async def process_user_orders(
                     "amount": amount,
                     "current_price_at_creation": new_current_price,  # Сохраняем для обновления БД
                     "target_price": new_target_price,  # Сохраняем для обновления БД
-                    "telegram_id": telegram_id,  # Добавляем для логирования
+                    "account_id": account_id,  # Добавляем для логирования
+                    "telegram_id": telegram_id,  # Добавляем для уведомлений
                 }
 
                 # Добавляем в список для размещения (всегда в паре с отменой)
                 orders_to_place.append(new_order_params)
                 logger.info(
-                    f"✅ Ордер {order_id} (User: {telegram_id}, Market: {market_id}) добавлен в список для размещения"
+                    f"✅ Ордер {order_id} (Account: {account_id}, Market: {market_id}) добавлен в список для размещения"
                 )
             else:
                 logger.info(
-                    f"⏭️ Ордер {order_id} (User: {telegram_id}, Market: {market_id}) не будет переставлен: "
+                    f"⏭️ Ордер {order_id} (Account: {account_id}, Market: {market_id}) не будет переставлен: "
                     f"изменение целевой цены недостаточно ({target_price_change_cents:.2f}¢ < {reposition_threshold_cents:.2f}¢)"
                 )
 
@@ -925,31 +920,56 @@ async def async_sync_all_orders(bot):
     logger.info("╚" + "=" * 78 + "╝")
     logger.info("")
 
-    # Получаем всех пользователей
-    users = await get_all_users()
-    logger.info(f"Найдено пользователей: {len(users)}")
+    # Получаем все pending ордера с JOIN к аккаунтам
+    orders_with_accounts = await get_all_pending_orders_with_accounts()
+    logger.info(f"Найдено pending ордеров: {len(orders_with_accounts)}")
 
-    if not users:
-        logger.warning("В базе данных нет пользователей")
+    if not orders_with_accounts:
+        logger.warning("В базе данных нет pending ордеров")
         return
+
+    # Группируем ордера по account_id
+    orders_by_account = {}
+    for item in orders_with_accounts:
+        account_id = item["account"]["account_id"]
+        if account_id not in orders_by_account:
+            orders_by_account[account_id] = {
+                "account": item["account"],
+                "orders": [],
+            }
+        orders_by_account[account_id]["orders"].append(item["order"])
+
+    logger.info(f"Найдено аккаунтов с pending ордерами: {len(orders_by_account)}")
 
     # Общая статистика
     total_cancelled = 0
     total_placed = 0
     total_errors = 0
 
-    # Обрабатываем ордера для каждого пользователя
-    for telegram_id in users:
-        # Засекаем время начала обработки пользователя
-        user_start_time = time.time()
-        user_start_time_str = time.strftime(
-            "%Y-%m-%d %H:%M:%S", time.localtime(user_start_time)
+    # Обрабатываем ордера для каждого аккаунта
+    for account_id, account_data in orders_by_account.items():
+        account = account_data["account"]
+        telegram_id = account["telegram_id"]
+        proxy_status = account.get("proxy_status", "unknown")
+
+        # Засекаем время начала обработки аккаунта
+        account_start_time = time.time()
+        account_start_time_str = time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(account_start_time)
         )
 
         logger.info(f"\n{'=' * 80}")
-        logger.info(f"Обработка пользователя {telegram_id}")
-        logger.info(f"⏰ Время начала: {user_start_time_str}")
+        logger.info(f"Обработка аккаунта {account_id} (пользователь {telegram_id})")
+        logger.info(f"⏰ Время начала: {account_start_time_str}")
+        logger.info(f"📊 Статус прокси: {proxy_status}")
         logger.info(f"{'=' * 80}")
+
+        # Проверяем статус прокси
+        if proxy_status == "failed":
+            logger.warning(
+                f"Пропуск аккаунта {account_id}: прокси не работает (статус: failed)"
+            )
+            continue
 
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления
@@ -957,14 +977,14 @@ async def async_sync_all_orders(bot):
                 orders_to_cancel,
                 orders_to_place,
                 price_change_notifications,
-            ) = await process_user_orders(telegram_id, bot)
+            ) = await process_account_orders(account_id, account, bot)
 
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:
                 await send_price_change_notification(bot, telegram_id, notification)
 
             if not orders_to_cancel and not orders_to_place:
-                logger.info(f"Нет ордеров для перемещения у пользователя {telegram_id}")
+                logger.info(f"Нет ордеров для перемещения у аккаунта {account_id}")
                 continue
 
             logger.info(f"Ордеров для отмены: {len(orders_to_cancel)}")
@@ -979,26 +999,25 @@ async def async_sync_all_orders(bot):
                     f"КРИТИЧЕСКАЯ ОШИБКА: Несоответствие списков! Отмена={len(orders_to_cancel)}, размещение={len(orders_to_place)}"
                 )
                 logger.error(
-                    "Это указывает на ошибку в логике process_user_orders. Пропускаем обработку для безопасности."
+                    "Это указывает на ошибку в логике process_account_orders. Пропускаем обработку для безопасности."
                 )
                 continue
 
             # Если списки пустые, но есть уведомления - это нормально (изменение недостаточно)
             if not orders_to_cancel:
                 logger.info(
-                    f"Нет ордеров для перестановки у пользователя {telegram_id} (изменение недостаточно для всех ордеров)"
+                    f"Нет ордеров для перестановки у аккаунта {account_id} (изменение недостаточно для всех ордеров)"
                 )
                 continue
 
-            # Получаем клиент для пользователя
-            user = await get_user(telegram_id)
+            # Создаем клиент для аккаунта
             # create_client остается синхронным, но это быстрая операция
-            client = create_client(user)
+            client = create_client(account)
 
             # Отменяем старые ордера
             cancelled_count = 0
             if orders_to_cancel:
-                logger.info(f"🔄 Отмена ордеров для пользователя {telegram_id}...")
+                logger.info(f"🔄 Отмена ордеров для аккаунта {account_id}...")
                 # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
                 cancel_results = await asyncio.to_thread(
                     cancel_orders_batch, client, orders_to_cancel
@@ -1013,7 +1032,7 @@ async def async_sync_all_orders(bot):
                     order_id = orders_to_cancel[i]
                     # Получаем market_id из соответствующего ордера в orders_to_place
                     # Индекс i безопасен, так как списки одинаковой длины
-                    market_id_info = f" (User: {telegram_id}, Market: {orders_to_place[i].get('market_id', 'N/A')})"
+                    market_id_info = f" (Account: {account_id}, Market: {orders_to_place[i].get('market_id', 'N/A')})"
                     is_success = False
 
                     if result.get("success", False):
@@ -1098,10 +1117,10 @@ async def async_sync_all_orders(bot):
                     continue
 
             # Размещаем новые ордера только если все старые успешно отменены
-            # БАТЧИ ФОРМИРУЮТСЯ ПО ПОЛЬЗОВАТЕЛЮ: каждый пользователь обрабатывается отдельно,
-            # и для каждого пользователя создается свой батч ордеров (все ордера одного пользователя в одном батче)
+            # БАТЧИ ФОРМИРУЮТСЯ ПО АККАУНТУ: каждый аккаунт обрабатывается отдельно,
+            # и для каждого аккаунта создается свой батч ордеров (все ордера одного аккаунта в одном батче)
             if orders_to_place and cancelled_count == len(orders_to_cancel):
-                logger.info(f"📝 Размещение ордеров для пользователя {telegram_id}...")
+                logger.info(f"📝 Размещение ордеров для аккаунта {account_id}...")
                 # Обертываем синхронный вызов в asyncio.to_thread, чтобы не блокировать event loop
                 place_results = await asyncio.to_thread(
                     place_orders_batch, client, orders_to_place
@@ -1198,21 +1217,21 @@ async def async_sync_all_orders(bot):
                         )
 
         except Exception as e:
-            logger.error(f"Ошибка при обработке пользователя {telegram_id}: {e}")
+            logger.error(f"Ошибка при обработке аккаунта {account_id}: {e}")
             total_errors += 1
         finally:
-            # Засекаем время окончания обработки пользователя (всегда выполняется)
-            user_end_time = time.time()
-            user_end_time_str = time.strftime(
-                "%Y-%m-%d %H:%M:%S", time.localtime(user_end_time)
+            # Засекаем время окончания обработки аккаунта (всегда выполняется)
+            account_end_time = time.time()
+            account_end_time_str = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(account_end_time)
             )
-            user_elapsed = user_end_time - user_start_time
+            account_elapsed = account_end_time - account_start_time
 
             logger.info(
-                f"⏰ Время окончания обработки пользователя {telegram_id}: {user_end_time_str}"
+                f"⏰ Время окончания обработки аккаунта {account_id}: {account_end_time_str}"
             )
             logger.info(
-                f"⏱️  Время обработки пользователя {telegram_id}: {user_elapsed:.2f} секунд ({user_elapsed / 60:.2f} минут)"
+                f"⏱️  Время обработки аккаунта {account_id}: {account_elapsed:.2f} секунд ({account_elapsed / 60:.2f} минут)"
             )
             logger.info(f"{'=' * 80}")
 
