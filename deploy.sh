@@ -82,7 +82,7 @@ upload_files() {
         --exclude='venv' \
         --exclude='.venv' \
         --exclude='.env' \
-        --exclude='bot/users.db' \
+        --exclude='*.db' \
         --exclude='bot/__pycache__' \
         --exclude='develop' \
         --exclude='simple_flow.py' \

@@ -132,7 +132,7 @@ async def check_proxy_health(proxy_str: str, timeout: float = 10.0) -> str:
         proxy_url_with_auth = f"http://{username}:{password}@{host}:{port}"
 
         async with httpx.AsyncClient(
-            proxies={"http://": proxy_url_with_auth, "https://": proxy_url_with_auth},
+            proxy=proxy_url_with_auth,
             timeout=timeout,
         ) as client:
             response = await client.get(
