@@ -4,6 +4,7 @@ Handles help, support, and account checking commands.
 """
 
 import logging
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -21,7 +22,13 @@ from opinion.opinion_api_wrapper import (
     get_usdt_balance,
 )
 from service.config import settings
-from service.database import get_opinion_account, get_user, get_user_accounts
+from service.database import (
+    get_opinion_account,
+    get_user,
+    get_user_accounts,
+    update_proxy_status,
+)
+from service.proxy_checker import check_proxy_health
 
 logger = logging.getLogger(__name__)
 
@@ -150,19 +157,26 @@ async def show_account_info(message: Message, account_id: int):
                     logger.warning(f"Ошибка при парсинге стоимости позиции: {e}")
                     continue
 
-        # Информация о прокси
-        proxy_status = account.get("proxy_status", "unknown")
-        proxy_last_check = account.get("proxy_last_check")
+        # Информация о прокси - проверяем реально
         proxy_info = ""
         if account.get("proxy_str"):
-            proxy_parts = account["proxy_str"].split(":")
+            proxy_str = account["proxy_str"]
+            proxy_parts = proxy_str.split(":")
             proxy_info = f"\n   Proxy: {proxy_parts[0]}:{proxy_parts[1]}"
+
+            # Выполняем реальную проверку прокси
+            logger.info(f"Проверка прокси для аккаунта {account_id}")
+            proxy_status = await check_proxy_health(proxy_str)
+
+            # Обновляем статус в БД с текущим временем
+            current_time = datetime.now().isoformat()
+            await update_proxy_status(account_id, proxy_status, current_time)
+
             status_emoji = {"working": "✅", "failed": "❌", "unknown": "❓"}.get(
                 proxy_status, "❓"
             )
             proxy_info += f" {status_emoji} ({proxy_status})"
-            if proxy_last_check:
-                proxy_info += f"\n   Last check: {proxy_last_check[:16]}"
+            proxy_info += f"\n   Last check: {current_time[:16]}"
         else:
             proxy_info = "\n   Proxy: Not configured"
 
