@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 
 import httpx
 from service.database import (
+    get_all_users,
     get_opinion_account,
     get_user_accounts,
     update_proxy_status,
@@ -194,10 +195,11 @@ async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
     # Обновляем статус в БД
     await update_proxy_status(account_id, new_status)
 
-    # Если статус изменился с 'working' на 'failed', отправляем уведомление
-    if old_status == "working" and new_status == "failed":
-        if bot:
-            try:
+    # Отправляем уведомления при изменении статуса
+    if bot and old_status != new_status:
+        try:
+            if old_status == "working" and new_status == "failed":
+                # Прокси перестал работать
                 message = f"""⚠️ <b>Прокси не работает</b>
 
 Прокси для аккаунта Opinion перестал работать.
@@ -206,17 +208,36 @@ async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
 
 Статус прокси: <b>failed</b>
 
-Ордера этого аккаунта не будут синхронизироваться до восстановления работы прокси."""
+Ордера этого аккаунта не будут синхронизироваться до восстановления работы прокси.
+
+Прокси будет автоматически проверяться каждые 10 минут."""
                 await bot.send_message(
                     chat_id=telegram_id, text=message, parse_mode="HTML"
                 )
                 logger.info(
                     f"Отправлено уведомление пользователю {telegram_id} о неработающем прокси"
                 )
-            except Exception as e:
-                logger.error(
-                    f"Ошибка при отправке уведомления пользователю {telegram_id}: {e}"
+            elif old_status == "failed" and new_status == "working":
+                # Прокси восстановился
+                message = f"""✅ <b>Прокси восстановлен</b>
+
+Прокси для аккаунта Opinion снова работает.
+
+Аккаунт: {account["wallet_address"][:10]}...
+
+Статус прокси: <b>working</b>
+
+Синхронизация ордеров возобновлена."""
+                await bot.send_message(
+                    chat_id=telegram_id, text=message, parse_mode="HTML"
                 )
+                logger.info(
+                    f"Отправлено уведомление пользователю {telegram_id} о восстановлении прокси"
+                )
+        except Exception as e:
+            logger.error(
+                f"Ошибка при отправке уведомления пользователю {telegram_id}: {e}"
+            )
 
     return new_status
 
@@ -234,8 +255,6 @@ async def async_check_all_proxies(bot=None):
     logger.info("Начало проверки всех прокси")
 
     # Получаем всех пользователей
-    from service.database import get_all_users
-
     users = await get_all_users()
     total_accounts = 0
     checked_accounts = 0

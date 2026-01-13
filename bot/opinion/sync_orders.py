@@ -213,6 +213,25 @@ def get_current_market_price(client, token_id: str, side: str) -> Optional[float
         return None
 
 
+def get_market_url(market_id: int, root_market_id: Optional[int] = None) -> str:
+    """
+    Формирует ссылку на маркет.
+
+    Args:
+        market_id: ID маркета
+        root_market_id: ID корневого маркета (для categorical markets), None для binary markets
+
+    Returns:
+        URL ссылка на маркет
+    """
+    if root_market_id is not None:
+        # Категориальный маркет
+        return f"https://app.opinion.trade/detail?topicId={root_market_id}&type=multi"
+    else:
+        # Бинарный маркет
+        return f"https://app.opinion.trade/detail?topicId={market_id}"
+
+
 def calculate_new_target_price(
     new_current_price: float, side: str, offset_ticks: int, tick_size: float = TICK_SIZE
 ) -> float:
@@ -252,7 +271,7 @@ def calculate_new_target_price(
 
 
 async def process_account_orders(
-    account_id: int, account_data: dict, bot=None
+    account_id: int, account_data: dict, bot=None, market_id: Optional[int] = None
 ) -> Tuple[List[str], List[Dict], List[Dict]]:
     """
     Обрабатывает ордера аккаунта и возвращает списки для отмены и размещения.
@@ -261,6 +280,7 @@ async def process_account_orders(
         account_id: ID аккаунта Opinion
         account_data: Словарь с данными аккаунта (wallet_address, private_key, api_key, proxy_str, telegram_id)
         bot: Экземпляр aiogram Bot для отправки уведомлений (опционально)
+        market_id: Фильтр по market_id. Если None, обрабатывает все ордера аккаунта.
 
     Returns:
         Tuple: (список order_id для отмены, список параметров новых ордеров, список уведомлений о смещении цены)
@@ -279,7 +299,9 @@ async def process_account_orders(
         return orders_to_cancel, orders_to_place, price_change_notifications
 
     # Получаем активные ордера из БД
-    db_orders = await get_account_orders(account_id, status="pending")
+    db_orders = await get_account_orders(
+        account_id, status="pending", market_id=market_id
+    )
 
     if not db_orders:
         logger.info(f"У аккаунта {account_id} нет активных ордеров")
@@ -294,6 +316,9 @@ async def process_account_orders(
         try:
             order_id = db_order.get("order_id")
             market_id = db_order.get("market_id")
+            root_market_id = db_order.get(
+                "root_market_id"
+            )  # Для формирования ссылки на маркет
             token_id = db_order.get("token_id")  # Используем token_id из БД
             token_name = db_order.get("token_name")  # YES или NO
             side = db_order.get("side")  # BUY или SELL
@@ -437,6 +462,7 @@ async def process_account_orders(
                 new_order_params = {
                     "old_order_id": order_id,  # Старый order_id для обновления БД
                     "market_id": market_id,
+                    "root_market_id": root_market_id,  # Для формирования ссылки на маркет
                     "token_id": token_id,
                     "token_name": token_name,  # Добавляем для уведомлений
                     "side": order_side,
@@ -467,6 +493,7 @@ async def process_account_orders(
                     {
                         "order_id": order_id,
                         "market_id": market_id,
+                        "root_market_id": root_market_id,  # Для формирования ссылки на маркет
                         "token_name": token_name,
                         "side": side,
                         "old_current_price": current_price_at_creation,
@@ -652,11 +679,17 @@ async def send_price_change_notification(bot, telegram_id: int, notification: Di
         status_emoji = "✅"
         status_text = f"Order will be repositioned (change: {target_price_change_cents:.2f} cents &gt;= threshold: {reposition_threshold_cents:.2f} cents)"
 
+        # Формируем ссылку на маркет
+        market_id = notification["market_id"]
+        root_market_id = notification.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id)
+
         # Экранируем HTML-специальные символы и используем "cents" вместо символа ¢
         message = f"""🔔 <b>Price Change Detected</b>
 
 {side_emoji} <b>{notification["token_name"]} {notification["side"]}</b>
 📊 Market ID: {notification["market_id"]}
+🔗 <a href="{market_url}">Market Link</a>
 
 💰 <b>Current Price:</b>
    Old: {old_price_cents:.2f} cents
@@ -695,10 +728,16 @@ async def send_order_updated_notification(
         side_emoji = "📈" if order_params.get("side") == OrderSide.BUY else "📉"
         side_text = "BUY" if order_params.get("side") == OrderSide.BUY else "SELL"
 
+        # Формируем ссылку на маркет
+        market_id = order_params["market_id"]
+        root_market_id = order_params.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id)
+
         message = f"""✅ <b>Order Updated Successfully</b>
 
 {side_emoji} <b>{order_params.get("token_name", "N/A")} {side_text}</b>
 📊 Market ID: {order_params["market_id"]}
+🔗 <a href="{market_url}">Market Link</a>
 
 🆔 <b>New Order ID:</b>
 <code>{new_order_id}</code>
@@ -814,14 +853,17 @@ async def send_order_filled_notification(bot, telegram_id: int, api_order):
 
         # Формируем ссылку на корневой маркет
         if root_market_id:
-            market_url = f"https://app.opinion.trade/detail?topicId={root_market_id}"
+            # Категориальный маркет
+            market_url = (
+                f"https://app.opinion.trade/detail?topicId={root_market_id}&type=multi"
+            )
             market_link_text = (
                 root_market_title[:50]
                 if root_market_title
                 else f"Market {root_market_id}"
             )
         else:
-            # Если нет root_market_id, используем обычный market_id
+            # Бинарный маркет
             market_url = f"https://app.opinion.trade/detail?topicId={market_id}"
             market_link_text = (
                 market_title[:50] if market_title else f"Market {market_id}"
@@ -841,7 +883,7 @@ async def send_order_filled_notification(bot, telegram_id: int, api_order):
 
 Your order has been successfully filled! Please check the market and consider placing new orders. 🎉"""
 
-        await bot.send_message(chat_id=telegram_id, text=message, parse_mode="HTML")
+        await bot.send_message(chat_id=telegram_id, text=message)
         logger.info(
             f"Отправлено уведомление об исполнении ордера {order_id} пользователю {telegram_id}"
         )
@@ -907,12 +949,13 @@ The following orders could not be cancelled:
         )
 
 
-async def async_sync_all_orders(bot):
+async def async_sync_all_orders(bot, market_id: Optional[int] = None):
     """
     Асинхронная функция синхронизации ордеров с уведомлениями пользователям.
 
     Args:
         bot: Экземпляр aiogram Bot для отправки уведомлений
+        market_id: Фильтр по market_id. Если None, синхронизирует все ордера.
     """
     logger.info("")
     logger.info("╔" + "=" * 78 + "╗")
@@ -921,7 +964,10 @@ async def async_sync_all_orders(bot):
     logger.info("")
 
     # Получаем все pending ордера с JOIN к аккаунтам
-    orders_with_accounts = await get_all_pending_orders_with_accounts()
+    orders_with_accounts = await get_all_pending_orders_with_accounts(
+        market_id=market_id
+    )
+
     logger.info(f"Найдено pending ордеров: {len(orders_with_accounts)}")
 
     if not orders_with_accounts:
@@ -977,7 +1023,9 @@ async def async_sync_all_orders(bot):
                 orders_to_cancel,
                 orders_to_place,
                 price_change_notifications,
-            ) = await process_account_orders(account_id, account, bot)
+            ) = await process_account_orders(
+                account_id, account, bot, market_id=market_id
+            )
 
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:

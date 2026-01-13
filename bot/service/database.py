@@ -69,6 +69,7 @@ async def init_database():
                 account_id INTEGER NOT NULL,
                 order_id TEXT NOT NULL,
                 market_id INTEGER NOT NULL,
+                root_market_id INTEGER DEFAULT NULL,
                 market_title TEXT,
                 token_id TEXT NOT NULL,
                 token_name TEXT NOT NULL,
@@ -84,6 +85,15 @@ async def init_database():
                 FOREIGN KEY (account_id) REFERENCES opinion_accounts(account_id)
             )
         """)
+
+        # Миграция: добавляем поле root_market_id для существующих таблиц
+        try:
+            await conn.execute("""
+                ALTER TABLE orders ADD COLUMN root_market_id INTEGER DEFAULT NULL
+            """)
+        except aiosqlite.OperationalError:
+            # Колонка уже существует, игнорируем ошибку
+            pass
 
         # Создаем индекс для быстрого поиска ордеров по account_id
         await conn.execute("""
@@ -254,6 +264,7 @@ async def save_order(
     amount: float,
     status: str = "pending",
     reposition_threshold_cents: float = 0.5,
+    root_market_id: Optional[int] = None,
 ):
     """
     Сохраняет информацию об ордере в базу данных.
@@ -273,19 +284,21 @@ async def save_order(
         amount: Сумма ордера в USDT
         status: Статус ордера (pending/finished/canceled)
         reposition_threshold_cents: Порог отклонения в центах для перестановки ордера
+        root_market_id: ID корневого маркета (для categorical markets), None для binary markets
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
             """
             INSERT INTO orders 
-            (account_id, order_id, market_id, market_title, token_id, token_name, 
+            (account_id, order_id, market_id, root_market_id, market_title, token_id, token_name, 
              side, current_price, target_price, offset_ticks, offset_cents, amount, status, reposition_threshold_cents)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 account_id,
                 order_id,
                 market_id,
+                root_market_id,
                 market_title,
                 token_id,
                 token_name,
@@ -304,13 +317,16 @@ async def save_order(
     logger.info(f"Ордер {order_id} сохранен в базу данных для аккаунта {account_id}")
 
 
-async def get_account_orders(account_id: int, status: Optional[str] = None) -> list:
+async def get_account_orders(
+    account_id: int, status: Optional[str] = None, market_id: Optional[int] = None
+) -> list:
     """
     Получает список ордеров аккаунта из базы данных.
 
     Args:
         account_id: ID аккаунта Opinion
         status: Фильтр по статусу (pending/finished/canceled). Если None, возвращает все ордера.
+        market_id: Фильтр по market_id. Если None, возвращает ордера для всех рынков.
 
     Returns:
         list: Список словарей с данными ордеров
@@ -321,6 +337,7 @@ async def get_account_orders(account_id: int, status: Optional[str] = None) -> l
         "account_id",
         "order_id",
         "market_id",
+        "root_market_id",
         "market_title",
         "token_id",
         "token_name",
@@ -336,26 +353,29 @@ async def get_account_orders(account_id: int, status: Optional[str] = None) -> l
     ]
 
     async with aiosqlite.connect(DB_PATH) as conn:
+        # Формируем условия WHERE динамически
+        conditions = ["account_id = ?"]
+        params = [account_id]
+
         if status:
-            async with conn.execute(
-                f"""
-                SELECT {", ".join(columns)} FROM orders 
-                WHERE account_id = ? AND status = ?
-                ORDER BY created_at DESC
+            conditions.append("status = ?")
+            params.append(status)
+
+        if market_id is not None:
+            conditions.append("market_id = ?")
+            params.append(market_id)
+
+        where_clause = " AND ".join(conditions)
+
+        async with conn.execute(
+            f"""
+            SELECT {", ".join(columns)} FROM orders 
+            WHERE {where_clause}
+            ORDER BY created_at DESC
             """,
-                (account_id, status),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        else:
-            async with conn.execute(
-                f"""
-                SELECT {", ".join(columns)} FROM orders 
-                WHERE account_id = ?
-                ORDER BY created_at DESC
-            """,
-                (account_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
+            tuple(params),
+        ) as cursor:
+            rows = await cursor.fetchall()
 
     orders = []
     for row in rows:
@@ -389,6 +409,7 @@ async def get_user_orders(telegram_id: int, status: Optional[str] = None) -> lis
         "account_id",
         "order_id",
         "market_id",
+        "root_market_id",
         "market_title",
         "token_id",
         "token_name",
@@ -446,6 +467,7 @@ async def get_order_by_id(order_id: str) -> Optional[dict]:
         "account_id",
         "order_id",
         "market_id",
+        "root_market_id",
         "market_title",
         "token_id",
         "token_name",
@@ -728,9 +750,12 @@ async def update_proxy_status(
     logger.info(f"Статус прокси для аккаунта {account_id} обновлен на {status}")
 
 
-async def get_all_pending_orders_with_accounts() -> list:
+async def get_all_pending_orders_with_accounts(market_id: Optional[int] = None) -> list:
     """
     Получает все pending ордера с JOIN к аккаунтам для синхронизации.
+
+    Args:
+        market_id: Фильтр по market_id. Если None, возвращает ордера для всех рынков.
 
     Returns:
         list: Список словарей с данными ордеров и аккаунтов
@@ -740,6 +765,7 @@ async def get_all_pending_orders_with_accounts() -> list:
         "o.account_id",
         "o.order_id",
         "o.market_id",
+        "o.root_market_id",
         "o.market_title",
         "o.token_id",
         "o.token_name",
@@ -764,15 +790,26 @@ async def get_all_pending_orders_with_accounts() -> list:
         "a.proxy_status",
     ]
 
+    # Формируем условия WHERE динамически
+    conditions = ["o.status = 'pending'"]
+    params = []
+
+    if market_id is not None:
+        conditions.append("o.market_id = ?")
+        params.append(market_id)
+
+    where_clause = " AND ".join(conditions)
+
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
             f"""
             SELECT {", ".join(columns)}
             FROM orders o
             INNER JOIN opinion_accounts a ON o.account_id = a.account_id
-            WHERE o.status = 'pending'
+            WHERE {where_clause}
             ORDER BY a.account_id, o.created_at ASC
-            """
+            """,
+            tuple(params) if params else (),
         ) as cursor:
             rows = await cursor.fetchall()
 
@@ -780,10 +817,10 @@ async def get_all_pending_orders_with_accounts() -> list:
     for row in rows:
         try:
             # Расшифровываем данные аккаунта
-            wallet_address = decrypt(row[17], row[18])
-            private_key = decrypt(row[19], row[20])
-            api_key = decrypt(row[21], row[22])
-            proxy_str = decrypt(row[23], row[24])
+            wallet_address = decrypt(row[18], row[19])
+            private_key = decrypt(row[20], row[21])
+            api_key = decrypt(row[22], row[23])
+            proxy_str = decrypt(row[24], row[25])
 
             result.append(
                 {
@@ -792,22 +829,23 @@ async def get_all_pending_orders_with_accounts() -> list:
                         "account_id": row[1],
                         "order_id": row[2],
                         "market_id": row[3],
-                        "market_title": row[4],
-                        "token_id": row[5],
-                        "token_name": row[6],
-                        "side": row[7],
-                        "current_price": row[8],
-                        "target_price": row[9],
-                        "offset_ticks": row[10],
-                        "offset_cents": row[11],
-                        "amount": row[12],
-                        "status": row[13],
-                        "reposition_threshold_cents": row[14],
-                        "created_at": row[15],
+                        "root_market_id": row[4],
+                        "market_title": row[5],
+                        "token_id": row[6],
+                        "token_name": row[7],
+                        "side": row[8],
+                        "current_price": row[9],
+                        "target_price": row[10],
+                        "offset_ticks": row[11],
+                        "offset_cents": row[12],
+                        "amount": row[13],
+                        "status": row[14],
+                        "reposition_threshold_cents": row[15],
+                        "created_at": row[16],
                     },
                     "account": {
                         "account_id": row[1],
-                        "telegram_id": row[16],
+                        "telegram_id": row[17],
                         "wallet_address": wallet_address,
                         "private_key": private_key,
                         "api_key": api_key,

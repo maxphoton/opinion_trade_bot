@@ -14,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.opinion_api_wrapper import get_usdt_balance
 from service.database import (
     check_api_key_exists,
     check_private_key_exists,
@@ -296,8 +297,6 @@ async def save_and_notify_account(
 
         # Пробуем получить баланс для проверки валидности аккаунта
         # Если клиент создался успешно и баланс получен (даже если 0.0), значит аккаунт валиден
-        from opinion.opinion_api_wrapper import get_usdt_balance
-
         balance = await get_usdt_balance(client)
         # get_usdt_balance всегда возвращает float (0.0 в случае ошибки)
         # Если дошли сюда без исключения, значит аккаунт валиден

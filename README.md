@@ -66,7 +66,7 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Execution Notifications**: Automatic notifications when orders are executed with execution details
 
 ### 🔄 Automatic Order Synchronization
-- **Background Task**: Automatically synchronizes orders every 60 seconds
+- **Current Implementation**: Periodic synchronization via REST API every 60 seconds
 - **Order Status Monitoring**: Checks order status via API before processing
   - Automatically updates database when orders are filled or cancelled externally
   - Sends notifications for filled orders with order details (price, market link)
@@ -81,6 +81,17 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
   - Placement errors (with detailed error messages)
 - **Non-blocking**: All operations are asynchronous and don't block the bot's event loop
 - **Safety Checks**: Only places new orders after successfully canceling old ones
+
+### 🚀 Upcoming: WebSocket-Based Synchronization
+- **Planned Migration**: The bot will soon transition to real-time WebSocket-based order synchronization
+- **Benefits**: 
+  - **Real-time Updates**: Instant price change detection via WebSocket subscriptions to `market.last.trade` channel
+  - **Reduced Latency**: Orders will be repositioned immediately when prices change, instead of waiting up to 60 seconds
+  - **Lower API Load**: WebSocket connections reduce the number of REST API calls needed for price monitoring
+  - **Debounced Processing**: Price updates are debounced (3 seconds) to group frequent changes and reduce unnecessary repositioning
+  - **Automatic Reconnection**: Robust reconnection logic with exponential backoff for connection stability
+- **Implementation Status**: WebSocket synchronization module (`websocket_sync.py`) is implemented and ready for activation
+- **Backward Compatibility**: The new WebSocket system will use the same order synchronization logic, ensuring consistent behavior
 
 ### 📝 Logging & Monitoring
 - **Separate Log Files**: Different log files for different modules:
@@ -284,7 +295,8 @@ bot/
 ├── opinion/                 # Opinion.trade integration
 │   ├── client_factory.py    # Opinion SDK client creation and proxy setup
 │   ├── opinion_api_wrapper.py  # Opinion API wrapper functions (async)
-│   └── sync_orders.py       # Automatic order synchronization background task
+│   ├── sync_orders.py       # Automatic order synchronization background task (REST API)
+│   └── websocket_sync.py    # WebSocket-based real-time order synchronization (planned)
 ├── middlewares/             # Bot middlewares
 │   ├── spam_protection.py   # Anti-spam middleware
 │   └── typing_middleware.py # Typing indicator middleware
@@ -313,11 +325,13 @@ The bot uses a modular router-based architecture:
 - **Opinion Integration**: Opinion.trade integration in `opinion/` directory
   - `client_factory.py` - SDK client creation
   - `opinion_api_wrapper.py` - API wrapper functions
-  - `sync_orders.py` - Order synchronization
+  - `sync_orders.py` - Order synchronization (current: REST API polling)
+  - `websocket_sync.py` - WebSocket-based real-time synchronization (planned)
 - **Async Database**: All database operations use `aiosqlite` for non-blocking I/O
 - **Background Tasks**: 
-  - Order synchronization runs every 60 seconds
+  - Order synchronization runs every 60 seconds (REST API polling)
   - Proxy health checking runs every 10 minutes
+  - WebSocket synchronization (planned) will provide real-time updates instead of periodic polling
 - **Dialogs**: Complex multi-step interactions use `aiogram-dialog` for better UX
 - **Middleware**: 
   - Global anti-spam protection for all messages and callbacks
@@ -342,6 +356,7 @@ The bot supports the following environment variables:
 - `RPC_URL`: BNB Chain RPC endpoint (required)
 - `ADMIN_TELEGRAM_ID`: Telegram user ID for admin commands (required for invite management)
 - `PROXY`: Global proxy configuration in format `host:port:username:password` (optional, for SDK initialization)
+- `WEBSOCKET_API_KEY`: Opinion Labs API key for WebSocket connections (optional, for future WebSocket synchronization feature)
 
 **Note**: Each Opinion account must have its own proxy configured via `/add_account`. Account-specific proxy is required and takes precedence over the global proxy setting.
 
@@ -366,7 +381,9 @@ The bot supports the following environment variables:
 
 ## Automatic Order Synchronization
 
-The bot automatically synchronizes your orders every 60 seconds:
+### Current Implementation (REST API Polling)
+
+The bot currently synchronizes your orders every 60 seconds using REST API polling:
 
 ### How it works:
 1. **Order Retrieval**: Retrieves all pending orders with account information from the database
@@ -400,6 +417,19 @@ The bot automatically synchronizes your orders every 60 seconds:
 - **Proxy Support**: Automatically skips accounts with failed proxies
 - **Account Isolation**: Each account is processed independently with its own API client
 
+### Planned: WebSocket-Based Real-Time Synchronization
+
+The bot will soon transition to WebSocket-based synchronization for real-time order updates:
+
+- **Real-Time Price Updates**: Subscribes to `market.last.trade` WebSocket channel for instant price change notifications
+- **Immediate Repositioning**: Orders are repositioned immediately when prices change, eliminating the 60-second polling delay
+- **Debounced Processing**: Price updates are debounced (3 seconds) to group frequent changes and reduce unnecessary API calls
+- **Automatic Market Subscription**: Automatically subscribes to all markets with active orders on startup
+- **Dynamic Subscription Management**: Automatically subscribes/unsubscribes when orders are created/cancelled
+- **Robust Reconnection**: Automatic reconnection with exponential backoff (1s to 60s) for connection stability
+- **Heartbeat Support**: Sends heartbeat messages every 30 seconds to keep connection alive
+- **Same Core Logic**: Uses the same proven order synchronization logic from `sync_orders.py` for consistency
+
 ## Dependencies
 
 - `aiogram==3.23.0` - Telegram Bot API framework
@@ -411,6 +441,7 @@ The bot automatically synchronizes your orders every 60 seconds:
 - `pydantic-settings==2.12.0` - Environment variable settings
 - `python-dotenv==1.2.1` - Environment variable loading
 - `httpx==0.28.1` - HTTP client for proxy checking
+- `websockets==14.0` - WebSocket client for real-time order synchronization (planned)
 - `pytest==9.0.2` - Testing framework (development)
 - `pytest-asyncio==1.3.0` - Async test support (development)
 
@@ -420,7 +451,8 @@ The bot automatically synchronizes your orders every 60 seconds:
 - All database operations use `aiosqlite` for true async I/O
 - API calls are wrapped in `asyncio.to_thread()` to prevent blocking
 - Background tasks run independently without blocking the main event loop:
-  - Order synchronization: runs every 60 seconds
+  - Order synchronization: runs every 60 seconds (REST API polling, current implementation)
+  - WebSocket synchronization: real-time updates via WebSocket subscriptions (planned)
   - Proxy health checking: runs every 10 minutes
 - Opinion API wrapper provides async interface for synchronous SDK
 - All routers and handlers are fully async
