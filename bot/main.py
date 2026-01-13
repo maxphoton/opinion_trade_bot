@@ -9,6 +9,7 @@
 
 import asyncio
 import logging
+from typing import Optional
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -19,6 +20,9 @@ from dotenv import load_dotenv
 from middlewares.spam_protection import AntiSpamMiddleware
 from middlewares.typing_middleware import TypingMiddleware
 from opinion.sync_orders import async_sync_all_orders
+from opinion.websocket_test import WebSocketTestMonitor
+
+# from opinion.websocket_sync import WebSocketOrderSync, set_websocket_sync
 from routers.account import account_router
 from routers.admin import admin_router
 from routers.make_market import market_router
@@ -30,6 +34,7 @@ from routers.users import user_router
 from service.config import settings
 from service.database import init_database
 from service.logger_config import setup_root_logger
+from service.proxy_checker import async_check_all_proxies
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -71,8 +76,6 @@ async def background_sync_task():
 
 async def background_proxy_check_task():
     """Фоновая задача для периодической проверки прокси."""
-    from service.proxy_checker import async_check_all_proxies
-
     PROXY_CHECK_INTERVAL = 600  # 10 минут
 
     while True:
@@ -123,6 +126,21 @@ async def main():
     asyncio.create_task(background_proxy_check_task())
     logger.info("Background proxy check task started")
 
+    # Запускаем тестовый монитор WebSocket (для отладки)
+    websocket_test: Optional[WebSocketTestMonitor] = None
+    try:
+        websocket_test = WebSocketTestMonitor(bot)
+        await websocket_test.start()
+        logger.info("WebSocket test monitor started")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске тестового монитора WebSocket: {e}")
+
+    # Запускаем WebSocket менеджер синхронизации ордеров (закомментировано)
+    # websocket_sync = WebSocketOrderSync(bot)
+    # set_websocket_sync(websocket_sync)  # Устанавливаем глобальный экземпляр
+    # await websocket_sync.start()
+    # logger.info("WebSocket sync manager started")
+
     # Отправляем сообщение админу при старте (если указан)
     if settings.admin_telegram_id and settings.admin_telegram_id != 0:
         try:
@@ -136,7 +154,18 @@ async def main():
             logger.warning(f"Failed to send startup notification to admin: {e}")
 
     logger.info("Бот запущен")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # Останавливаем тестовый монитор WebSocket при завершении работы
+        if websocket_test:
+            await websocket_test.stop()
+            logger.info("WebSocket test monitor stopped")
+
+        # Останавливаем WebSocket менеджер при завершении работы (закомментировано)
+        # if websocket_sync:
+        #     await websocket_sync.stop()
+        #     logger.info("WebSocket sync manager stopped")
 
 
 if __name__ == "__main__":

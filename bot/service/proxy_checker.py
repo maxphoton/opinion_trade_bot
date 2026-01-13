@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 
 import httpx
 from service.database import (
+    get_all_users,
     get_opinion_account,
     get_user_accounts,
     update_proxy_status,
@@ -234,8 +235,6 @@ async def async_check_all_proxies(bot=None):
     logger.info("Начало проверки всех прокси")
 
     # Получаем всех пользователей
-    from service.database import get_all_users
-
     users = await get_all_users()
     total_accounts = 0
     checked_accounts = 0

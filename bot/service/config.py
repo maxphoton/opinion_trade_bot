@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     conditional_token_addr: str = "0xAD1a38cEc043e70E83a3eC30443dB285ED10D774"
     multisend_addr: str = "0x998739BFdAAdde7C933B942a68053933098f9EDa"
 
+    # WebSocket API ключ для подписок на публичные каналы (опционально)
+    # Если не указан, будет использован API ключ первого аккаунта из БД
+    websocket_api_key: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

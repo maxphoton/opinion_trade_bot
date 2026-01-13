@@ -252,7 +252,7 @@ def calculate_new_target_price(
 
 
 async def process_account_orders(
-    account_id: int, account_data: dict, bot=None
+    account_id: int, account_data: dict, bot=None, market_id: Optional[int] = None
 ) -> Tuple[List[str], List[Dict], List[Dict]]:
     """
     Обрабатывает ордера аккаунта и возвращает списки для отмены и размещения.
@@ -261,6 +261,7 @@ async def process_account_orders(
         account_id: ID аккаунта Opinion
         account_data: Словарь с данными аккаунта (wallet_address, private_key, api_key, proxy_str, telegram_id)
         bot: Экземпляр aiogram Bot для отправки уведомлений (опционально)
+        market_id: Фильтр по market_id. Если None, обрабатывает все ордера аккаунта.
 
     Returns:
         Tuple: (список order_id для отмены, список параметров новых ордеров, список уведомлений о смещении цены)
@@ -279,7 +280,9 @@ async def process_account_orders(
         return orders_to_cancel, orders_to_place, price_change_notifications
 
     # Получаем активные ордера из БД
-    db_orders = await get_account_orders(account_id, status="pending")
+    db_orders = await get_account_orders(
+        account_id, status="pending", market_id=market_id
+    )
 
     if not db_orders:
         logger.info(f"У аккаунта {account_id} нет активных ордеров")
@@ -907,12 +910,13 @@ The following orders could not be cancelled:
         )
 
 
-async def async_sync_all_orders(bot):
+async def async_sync_all_orders(bot, market_id: Optional[int] = None):
     """
     Асинхронная функция синхронизации ордеров с уведомлениями пользователям.
 
     Args:
         bot: Экземпляр aiogram Bot для отправки уведомлений
+        market_id: Фильтр по market_id. Если None, синхронизирует все ордера.
     """
     logger.info("")
     logger.info("╔" + "=" * 78 + "╗")
@@ -921,7 +925,10 @@ async def async_sync_all_orders(bot):
     logger.info("")
 
     # Получаем все pending ордера с JOIN к аккаунтам
-    orders_with_accounts = await get_all_pending_orders_with_accounts()
+    orders_with_accounts = await get_all_pending_orders_with_accounts(
+        market_id=market_id
+    )
+
     logger.info(f"Найдено pending ордеров: {len(orders_with_accounts)}")
 
     if not orders_with_accounts:
@@ -977,7 +984,9 @@ async def async_sync_all_orders(bot):
                 orders_to_cancel,
                 orders_to_place,
                 price_change_notifications,
-            ) = await process_account_orders(account_id, account, bot)
+            ) = await process_account_orders(
+                account_id, account, bot, market_id=market_id
+            )
 
             # Отправляем уведомления о смещении цены (независимо от успешности отмены/создания)
             for notification in price_change_notifications:

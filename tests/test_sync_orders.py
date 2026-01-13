@@ -17,7 +17,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from service.config import TICK_SIZE
+from opinion.opinion_api_wrapper import ORDER_STATUS_CANCELED, ORDER_STATUS_FINISHED
 
 # Импортируем функции для тестирования
 # conftest.py настроит sys.path для работы с относительными импортами
@@ -29,7 +29,7 @@ from opinion.sync_orders import (
     send_order_filled_notification,
     send_order_placement_error_notification,
 )
-from opinion.opinion_api_wrapper import ORDER_STATUS_CANCELED, ORDER_STATUS_FINISHED
+from service.config import TICK_SIZE
 
 # Мокируем OrderSide для тестов
 # Создаем MagicMock объекты, которые будут использоваться для сравнения
@@ -41,32 +41,41 @@ MockOrderSide.SELL = MagicMock()
 class TestCalculateNewTargetPrice:
     """Тесты для функции calculate_new_target_price"""
 
-    @pytest.mark.parametrize("current_price,offset_ticks,side,expected", [
-        (0.5, 10, "BUY", 0.5 - 10 * TICK_SIZE),
-        (0.5, 10, "SELL", 0.5 + 10 * TICK_SIZE),
-        (0.3, 5, "BUY", 0.3 - 5 * TICK_SIZE),
-        (0.7, 15, "SELL", 0.7 + 15 * TICK_SIZE),
-    ])
+    @pytest.mark.parametrize(
+        "current_price,offset_ticks,side,expected",
+        [
+            (0.5, 10, "BUY", 0.5 - 10 * TICK_SIZE),
+            (0.5, 10, "SELL", 0.5 + 10 * TICK_SIZE),
+            (0.3, 5, "BUY", 0.3 - 5 * TICK_SIZE),
+            (0.7, 15, "SELL", 0.7 + 15 * TICK_SIZE),
+        ],
+    )
     def test_calculate_target_price(self, current_price, offset_ticks, side, expected):
         """Тест расчета целевой цены для разных параметров"""
         result = calculate_new_target_price(current_price, side, offset_ticks)
         assert result == pytest.approx(expected, abs=0.0001)
 
-    @pytest.mark.parametrize("current_price,offset_ticks,side", [
-        (0.01, 100, "BUY"),  # Большой отступ для BUY
-        (0.001, 1, "BUY"),   # Граничный случай
-        (0.0, 1, "BUY"),     # Минимальная цена
-    ])
+    @pytest.mark.parametrize(
+        "current_price,offset_ticks,side",
+        [
+            (0.01, 100, "BUY"),  # Большой отступ для BUY
+            (0.001, 1, "BUY"),  # Граничный случай
+            (0.0, 1, "BUY"),  # Минимальная цена
+        ],
+    )
     def test_price_limits_min(self, current_price, offset_ticks, side):
         """Тест ограничения минимальной цены (0.001)"""
         result = calculate_new_target_price(current_price, side, offset_ticks)
         assert result >= 0.001
 
-    @pytest.mark.parametrize("current_price,offset_ticks,side", [
-        (0.99, 100, "SELL"),  # Большой отступ для SELL
-        (0.999, 1, "SELL"),   # Граничный случай
-        (1.0, 1, "SELL"),     # Максимальная цена
-    ])
+    @pytest.mark.parametrize(
+        "current_price,offset_ticks,side",
+        [
+            (0.99, 100, "SELL"),  # Большой отступ для SELL
+            (0.999, 1, "SELL"),  # Граничный случай
+            (1.0, 1, "SELL"),  # Максимальная цена
+        ],
+    )
     def test_price_limits_max(self, current_price, offset_ticks, side):
         """Тест ограничения максимальной цены (0.999)"""
         result = calculate_new_target_price(current_price, side, offset_ticks)
@@ -99,7 +108,9 @@ class TestProcessAccountOrders:
     async def test_no_orders(self, mock_account_data, mock_client):
         """Тест: у аккаунта нет активных ордеров"""
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
         ):
             mock_get_orders.return_value = []
@@ -133,10 +144,14 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -154,7 +169,9 @@ class TestProcessAccountOrders:
             assert len(orders_to_cancel) == 1
             assert orders_to_cancel[0] == "order_123"
             assert len(orders_to_place) == 1
-            assert len(orders_to_cancel) == len(orders_to_place)  # Списки должны быть согласованы
+            assert len(orders_to_cancel) == len(
+                orders_to_place
+            )  # Списки должны быть согласованы
 
             # Проверяем, что новый ордер связан со старым
             new_order = orders_to_place[0]
@@ -169,7 +186,10 @@ class TestProcessAccountOrders:
             assert notification["order_id"] == "order_123"
             assert notification["will_reposition"] is True
             # Проверяем бизнес-логику: изменение >= порога
-            assert notification["target_price_change_cents"] >= db_order["reposition_threshold_cents"]
+            assert (
+                notification["target_price_change_cents"]
+                >= db_order["reposition_threshold_cents"]
+            )
 
     @pytest.mark.asyncio
     async def test_reposition_insufficient_change(self, mock_account_data, mock_client):
@@ -189,10 +209,14 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -244,11 +268,20 @@ class TestProcessAccountOrders:
         api_order.order_amount = "100.0"
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
-            patch("opinion.sync_orders.update_order_status", new_callable=AsyncMock) as mock_update_status,
-            patch("opinion.sync_orders.send_order_filled_notification", new_callable=AsyncMock) as mock_send_notification,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.update_order_status", new_callable=AsyncMock
+            ) as mock_update_status,
+            patch(
+                "opinion.sync_orders.send_order_filled_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_notification,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -294,11 +327,20 @@ class TestProcessAccountOrders:
         api_order.status = ORDER_STATUS_CANCELED
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
-            patch("opinion.sync_orders.update_order_status", new_callable=AsyncMock) as mock_update_status,
-            patch("opinion.sync_orders.send_order_filled_notification", new_callable=AsyncMock) as mock_send_notification,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.update_order_status", new_callable=AsyncMock
+            ) as mock_update_status,
+            patch(
+                "opinion.sync_orders.send_order_filled_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_notification,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -340,10 +382,14 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -380,10 +426,14 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -434,10 +484,14 @@ class TestProcessAccountOrders:
         ]
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = db_orders
             mock_create_client.return_value = mock_client
@@ -472,7 +526,9 @@ class TestProcessAccountOrders:
             assert notifications[0]["will_reposition"] is True
 
     @pytest.mark.asyncio
-    async def test_notification_only_when_repositioning(self, mock_account_data, mock_client):
+    async def test_notification_only_when_repositioning(
+        self, mock_account_data, mock_client
+    ):
         """Тест: уведомление создается только когда ордер будет переставлен"""
         db_order = {
             "order_id": "order_notify",
@@ -489,14 +545,20 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
-            mock_get_price.return_value = 0.501  # Небольшое изменение, недостаточное для порога
+            mock_get_price.return_value = (
+                0.501  # Небольшое изменение, недостаточное для порога
+            )
             mock_get_order_by_id.return_value = None
 
             (
@@ -529,10 +591,14 @@ class TestProcessAccountOrders:
         }
 
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
-            patch("opinion.sync_orders.get_order_by_id", new_callable=AsyncMock) as mock_get_order_by_id,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
         ):
             mock_get_orders.return_value = [db_order]
             mock_create_client.return_value = mock_client
@@ -549,16 +615,23 @@ class TestProcessAccountOrders:
             assert notification["order_id"] == "order_struct"
             assert notification["will_reposition"] is True
             # Проверяем, что изменение целевой цены достаточно для перестановки
-            assert notification["target_price_change_cents"] >= notification["reposition_threshold_cents"]
+            assert (
+                notification["target_price_change_cents"]
+                >= notification["reposition_threshold_cents"]
+            )
             # Проверяем, что цены изменились
-            assert notification["old_current_price"] != notification["new_current_price"]
+            assert (
+                notification["old_current_price"] != notification["new_current_price"]
+            )
             assert notification["old_target_price"] != notification["new_target_price"]
 
     @pytest.mark.asyncio
     async def test_client_creation_error(self, mock_account_data):
         """Тест: ошибка создания клиента"""
         with (
-            patch("opinion.sync_orders.get_account_orders", new_callable=AsyncMock) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
             patch("opinion.sync_orders.create_client") as mock_create_client,
         ):
             mock_get_orders.return_value = [
@@ -589,6 +662,130 @@ class TestProcessAccountOrders:
             assert orders_to_place == []
             assert notifications == []
 
+    @pytest.mark.asyncio
+    async def test_filter_by_market_id(self, mock_account_data, mock_client):
+        """Тест: фильтрация ордеров по market_id"""
+        db_orders = [
+            {
+                "order_id": "order_1",
+                "market_id": 100,
+                "token_id": "token_yes",
+                "token_name": "YES",
+                "side": "BUY",
+                "current_price": 0.500,
+                "target_price": 0.490,
+                "offset_ticks": 10,
+                "amount": 100.0,
+                "reposition_threshold_cents": 0.5,
+                "status": "pending",
+            },
+            {
+                "order_id": "order_2",
+                "market_id": 200,
+                "token_id": "token_no",
+                "token_name": "NO",
+                "side": "SELL",
+                "current_price": 0.500,
+                "target_price": 0.510,
+                "offset_ticks": 10,
+                "amount": 100.0,
+                "reposition_threshold_cents": 0.5,
+                "status": "pending",
+            },
+        ]
+
+        with (
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
+            patch("opinion.sync_orders.create_client") as mock_create_client,
+            patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
+        ):
+            # Когда market_id=100, должны вернуться только ордера для market_id=100
+            mock_get_orders.return_value = [db_orders[0]]  # Только первый ордер
+            mock_create_client.return_value = mock_client
+            mock_get_price.return_value = 0.510
+            mock_get_order_by_id.return_value = None
+
+            (
+                orders_to_cancel,
+                orders_to_place,
+                notifications,
+            ) = await process_account_orders(1, mock_account_data, market_id=100)
+
+            # Проверяем, что get_account_orders вызван с правильным market_id
+            mock_get_orders.assert_called_once_with(1, status="pending", market_id=100)
+
+            # Должен быть обработан только ордер для market_id=100
+            assert len(orders_to_cancel) == 1
+            assert orders_to_cancel[0] == "order_1"
+            assert len(orders_to_place) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_market_id_filter(self, mock_account_data, mock_client):
+        """Тест: без фильтра по market_id обрабатываются все ордера"""
+        db_orders = [
+            {
+                "order_id": "order_1",
+                "market_id": 100,
+                "token_id": "token_yes",
+                "token_name": "YES",
+                "side": "BUY",
+                "current_price": 0.500,
+                "target_price": 0.490,
+                "offset_ticks": 10,
+                "amount": 100.0,
+                "reposition_threshold_cents": 0.5,
+                "status": "pending",
+            },
+            {
+                "order_id": "order_2",
+                "market_id": 200,
+                "token_id": "token_no",
+                "token_name": "NO",
+                "side": "SELL",
+                "current_price": 0.500,
+                "target_price": 0.510,
+                "offset_ticks": 10,
+                "amount": 100.0,
+                "reposition_threshold_cents": 0.5,
+                "status": "pending",
+            },
+        ]
+
+        with (
+            patch(
+                "opinion.sync_orders.get_account_orders", new_callable=AsyncMock
+            ) as mock_get_orders,
+            patch("opinion.sync_orders.create_client") as mock_create_client,
+            patch("opinion.sync_orders.get_current_market_price") as mock_get_price,
+            patch(
+                "opinion.sync_orders.get_order_by_id", new_callable=AsyncMock
+            ) as mock_get_order_by_id,
+        ):
+            # Когда market_id=None, должны вернуться все ордера
+            mock_get_orders.return_value = db_orders
+            mock_create_client.return_value = mock_client
+            mock_get_price.return_value = 0.510
+            mock_get_order_by_id.return_value = None
+
+            (
+                orders_to_cancel,
+                orders_to_place,
+                notifications,
+            ) = await process_account_orders(1, mock_account_data, market_id=None)
+
+            # Проверяем, что get_account_orders вызван с market_id=None
+            mock_get_orders.assert_called_once_with(1, status="pending", market_id=None)
+
+            # Должны быть обработаны оба ордера
+            assert len(orders_to_cancel) == 2
+            assert "order_1" in orders_to_cancel
+            assert "order_2" in orders_to_cancel
+
 
 class TestAsyncSyncAllOrders:
     """Тесты для функции async_sync_all_orders"""
@@ -597,7 +794,8 @@ class TestAsyncSyncAllOrders:
     async def test_no_pending_orders(self):
         """Тест: нет pending ордеров"""
         with patch(
-            "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+            "opinion.sync_orders.get_all_pending_orders_with_accounts",
+            new_callable=AsyncMock,
         ) as mock_get_orders:
             mock_get_orders.return_value = []
 
@@ -605,7 +803,7 @@ class TestAsyncSyncAllOrders:
             await async_sync_all_orders(mock_bot)
 
             # Функция должна завершиться без ошибок
-            mock_get_orders.assert_called_once()
+            mock_get_orders.assert_called_once_with(market_id=None)
 
     @pytest.mark.asyncio
     async def test_group_orders_by_account(self):
@@ -665,9 +863,12 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
         ):
             mock_get_orders.return_value = orders_with_accounts
             mock_process.return_value = ([], [], [])  # Нет ордеров для перестановки
@@ -675,11 +876,16 @@ class TestAsyncSyncAllOrders:
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
 
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
+
             # Проверяем, что process_account_orders вызван один раз для аккаунта 1
             assert mock_process.call_count == 1
             call_args = mock_process.call_args
             assert call_args[0][0] == 1  # account_id
             assert call_args[0][1]["account_id"] == 1  # account_data
+            # Проверяем, что market_id передан в process_account_orders
+            assert call_args.kwargs.get("market_id") is None
 
     @pytest.mark.asyncio
     async def test_skip_failed_proxy(self):
@@ -714,14 +920,20 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
         ):
             mock_get_orders.return_value = orders_with_accounts
 
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
+
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
 
             # Аккаунт с failed proxy должен быть пропущен
             mock_process.assert_not_called()
@@ -784,9 +996,12 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
         ):
             mock_get_orders.return_value = orders_with_accounts
             mock_process.return_value = ([], [], [])
@@ -794,8 +1009,14 @@ class TestAsyncSyncAllOrders:
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
 
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
+
             # Должно быть 2 вызова для двух аккаунтов
             assert mock_process.call_count == 2
+            # Проверяем, что market_id передан в process_account_orders
+            for call in mock_process.call_args_list:
+                assert call.kwargs.get("market_id") is None
 
     @pytest.mark.asyncio
     async def test_full_sync_cycle_success(self):
@@ -879,19 +1100,34 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.cancel_orders_batch") as mock_cancel,
             patch("opinion.sync_orders.place_orders_batch") as mock_place,
-            patch("opinion.sync_orders.update_order_in_db", new_callable=AsyncMock) as mock_update_db,
-            patch("opinion.sync_orders.send_price_change_notification", new_callable=AsyncMock) as mock_send_price,
-            patch("opinion.sync_orders.send_order_updated_notification", new_callable=AsyncMock) as mock_send_updated,
+            patch(
+                "opinion.sync_orders.update_order_in_db", new_callable=AsyncMock
+            ) as mock_update_db,
+            patch(
+                "opinion.sync_orders.send_price_change_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_price,
+            patch(
+                "opinion.sync_orders.send_order_updated_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_updated,
             patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
         ):
             mock_get_orders.return_value = orders_with_accounts
-            mock_process.return_value = (orders_to_cancel, orders_to_place, price_change_notifications)
+            mock_process.return_value = (
+                orders_to_cancel,
+                orders_to_place,
+                price_change_notifications,
+            )
             mock_client = MagicMock()
             mock_create_client.return_value = mock_client
             mock_cancel.return_value = cancel_results
@@ -906,6 +1142,13 @@ class TestAsyncSyncAllOrders:
 
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
+
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
+
+            # Проверяем, что market_id передан в process_account_orders
+            mock_process.assert_called_once()
+            assert mock_process.call_args.kwargs.get("market_id") is None
 
             # Проверяем, что уведомления отправлены
             assert mock_send_price.call_count == 1
@@ -980,13 +1223,19 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.cancel_orders_batch") as mock_cancel,
             patch("opinion.sync_orders.place_orders_batch") as mock_place,
-            patch("opinion.sync_orders.send_cancellation_error_notification", new_callable=AsyncMock) as mock_send_cancel_error,
+            patch(
+                "opinion.sync_orders.send_cancellation_error_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_cancel_error,
             patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
         ):
             mock_get_orders.return_value = orders_with_accounts
@@ -1003,6 +1252,9 @@ class TestAsyncSyncAllOrders:
 
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
+
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
 
             # Проверяем, что отмена вызвана
             mock_cancel.assert_called_once()
@@ -1074,14 +1326,22 @@ class TestAsyncSyncAllOrders:
 
         with (
             patch(
-                "opinion.sync_orders.get_all_pending_orders_with_accounts", new_callable=AsyncMock
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
             ) as mock_get_orders,
-            patch("opinion.sync_orders.process_account_orders", new_callable=AsyncMock) as mock_process,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
             patch("opinion.sync_orders.create_client") as mock_create_client,
             patch("opinion.sync_orders.cancel_orders_batch") as mock_cancel,
             patch("opinion.sync_orders.place_orders_batch") as mock_place,
-            patch("opinion.sync_orders.update_order_in_db", new_callable=AsyncMock) as mock_update_db,
-            patch("opinion.sync_orders.send_order_placement_error_notification", new_callable=AsyncMock) as mock_send_placement_error,
+            patch(
+                "opinion.sync_orders.update_order_in_db", new_callable=AsyncMock
+            ) as mock_update_db,
+            patch(
+                "opinion.sync_orders.send_order_placement_error_notification",
+                new_callable=AsyncMock,
+            ) as mock_send_placement_error,
             patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
         ):
             mock_get_orders.return_value = orders_with_accounts
@@ -1100,6 +1360,9 @@ class TestAsyncSyncAllOrders:
             mock_bot = AsyncMock()
             await async_sync_all_orders(mock_bot)
 
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
+
             # Проверяем, что размещение вызвано
             mock_place.assert_called_once()
 
@@ -1108,6 +1371,141 @@ class TestAsyncSyncAllOrders:
 
             # Проверяем, что отправлено уведомление об ошибке размещения
             mock_send_placement_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_sync_with_market_id_filter(self):
+        """Тест: синхронизация с фильтром по market_id"""
+        orders_with_accounts = [
+            {
+                "order": {
+                    "order_id": "order_1",
+                    "account_id": 1,
+                    "market_id": 100,
+                    "token_id": "token_yes",
+                    "token_name": "YES",
+                    "side": "BUY",
+                    "current_price": 0.500,
+                    "target_price": 0.490,
+                    "offset_ticks": 10,
+                    "amount": 100.0,
+                    "reposition_threshold_cents": 0.5,
+                    "status": "pending",
+                },
+                "account": {
+                    "account_id": 1,
+                    "telegram_id": 12345,
+                    "wallet_address": "0x123",
+                    "private_key": "key",
+                    "api_key": "api_key",
+                    "proxy_str": "proxy",
+                    "proxy_status": "active",
+                },
+            },
+            {
+                "order": {
+                    "order_id": "order_2",
+                    "account_id": 1,
+                    "market_id": 200,
+                    "token_id": "token_no",
+                    "token_name": "NO",
+                    "side": "SELL",
+                    "current_price": 0.500,
+                    "target_price": 0.510,
+                    "offset_ticks": 10,
+                    "amount": 100.0,
+                    "reposition_threshold_cents": 0.5,
+                    "status": "pending",
+                },
+                "account": {
+                    "account_id": 1,
+                    "telegram_id": 12345,
+                    "wallet_address": "0x123",
+                    "private_key": "key",
+                    "api_key": "api_key",
+                    "proxy_str": "proxy",
+                    "proxy_status": "active",
+                },
+            },
+        ]
+
+        with (
+            patch(
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
+            ) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
+        ):
+            # Когда указан market_id=100, должны вернуться только ордера для market_id=100
+            mock_get_orders.return_value = [
+                orders_with_accounts[0]
+            ]  # Только первый ордер
+            mock_process.return_value = ([], [], [])
+
+            mock_bot = AsyncMock()
+            await async_sync_all_orders(mock_bot, market_id=100)
+
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с правильным market_id
+            mock_get_orders.assert_called_once_with(market_id=100)
+
+            # Проверяем, что process_account_orders вызван с правильным market_id
+            mock_process.assert_called_once()
+            assert mock_process.call_args.kwargs.get("market_id") == 100
+
+    @pytest.mark.asyncio
+    async def test_sync_without_market_id(self):
+        """Тест: синхронизация без фильтра по market_id (обрабатываются все ордера)"""
+        orders_with_accounts = [
+            {
+                "order": {
+                    "order_id": "order_1",
+                    "account_id": 1,
+                    "market_id": 100,
+                    "token_id": "token_yes",
+                    "token_name": "YES",
+                    "side": "BUY",
+                    "current_price": 0.500,
+                    "target_price": 0.490,
+                    "offset_ticks": 10,
+                    "amount": 100.0,
+                    "reposition_threshold_cents": 0.5,
+                    "status": "pending",
+                },
+                "account": {
+                    "account_id": 1,
+                    "telegram_id": 12345,
+                    "wallet_address": "0x123",
+                    "private_key": "key",
+                    "api_key": "api_key",
+                    "proxy_str": "proxy",
+                    "proxy_status": "active",
+                },
+            },
+        ]
+
+        with (
+            patch(
+                "opinion.sync_orders.get_all_pending_orders_with_accounts",
+                new_callable=AsyncMock,
+            ) as mock_get_orders,
+            patch(
+                "opinion.sync_orders.process_account_orders", new_callable=AsyncMock
+            ) as mock_process,
+        ):
+            mock_get_orders.return_value = orders_with_accounts
+            mock_process.return_value = ([], [], [])
+
+            mock_bot = AsyncMock()
+            # Вызываем без market_id (по умолчанию None)
+            await async_sync_all_orders(mock_bot)
+
+            # Проверяем, что get_all_pending_orders_with_accounts вызван с market_id=None
+            mock_get_orders.assert_called_once_with(market_id=None)
+
+            # Проверяем, что process_account_orders вызван с market_id=None
+            mock_process.assert_called_once()
+            assert mock_process.call_args.kwargs.get("market_id") is None
 
 
 class TestCancellationErrorNotification:
@@ -1136,11 +1534,13 @@ class TestCancellationErrorNotification:
         assert mock_bot.send_message.called
         call_args = mock_bot.send_message.call_args
         assert call_args.kwargs["chat_id"] == telegram_id
-        
+
         # Проверяем, что ключевая информация присутствует (без проверки форматирования)
         message = call_args.kwargs["text"]
         assert "order_123" in message  # ID ордера
-        assert "10207" in message or "Order not found" in message  # Информация об ошибке
+        assert (
+            "10207" in message or "Order not found" in message
+        )  # Информация об ошибке
 
     @pytest.mark.asyncio
     async def test_send_notification_multiple_orders(self):
@@ -1266,7 +1666,7 @@ class TestOrderPlacementErrorNotification:
             assert mock_bot.send_message.called
             call_args = mock_bot.send_message.call_args
             assert call_args.kwargs["chat_id"] == telegram_id
-            
+
             # Проверяем, что ключевая информация присутствует
             message = call_args.kwargs["text"]
             assert "order_123" in message  # ID отмененного ордера
@@ -1389,7 +1789,7 @@ class TestOrderFilledNotification:
         assert mock_bot.send_message.called
         call_args = mock_bot.send_message.call_args
         assert call_args.kwargs["chat_id"] == telegram_id
-        
+
         # Проверяем, что ключевая информация присутствует
         message = call_args.kwargs["text"]
         assert "order_123" in message  # ID ордера

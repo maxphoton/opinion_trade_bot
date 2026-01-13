@@ -19,6 +19,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
 from opinion.opinion_api_wrapper import get_usdt_balance
+from opinion.websocket_sync import get_websocket_sync
 from opinion_clob_sdk import Client
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import LIMIT_ORDER
@@ -502,8 +503,11 @@ Please contact administrator via /support and provide the error code above."""
             )
             submarket_list.append({"id": submarket_id, "title": title, "data": subm})
 
-        # Save submarket list and client to state
-        await state.update_data(submarkets=submarket_list, client=client)
+        # Save submarket list, client and root_market_id to state
+        # Для categorical markets market_id - это root market ID
+        await state.update_data(
+            submarkets=submarket_list, client=client, root_market_id=market_id
+        )
 
         # Create keyboard for submarket selection
         builder = InlineKeyboardBuilder()
@@ -1327,6 +1331,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                 return
 
             market_id = data.get("market_id")
+            root_market_id = data.get("root_market_id")  # None для binary markets
             market = data.get("market")
             market_title = getattr(market, "market_title", None) if market else None
             token_id = data.get("token_id")
@@ -1356,10 +1361,29 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
                 amount=amount,
                 status="pending",
                 reposition_threshold_cents=reposition_threshold_cents,
+                root_market_id=root_market_id,
             )
             logger.info(
                 f"Order {order_id} successfully saved to DB for account {account_id}"
             )
+
+            # Подписываемся на маркет через WebSocket (если менеджер запущен)
+            try:
+                websocket_sync = get_websocket_sync()
+                if websocket_sync:
+                    await websocket_sync.subscribe_to_market(market_id, root_market_id)
+                    logger.info(
+                        f"Подписка на маркет {market_id} (root: {root_market_id}) через WebSocket"
+                    )
+                else:
+                    logger.debug(
+                        "WebSocket менеджер не запущен, подписка будет выполнена при старте"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Ошибка при подписке на маркет {market_id} через WebSocket: {e}"
+                )
+
         except Exception as e:
             logger.error(f"Error saving order to DB: {e}")
 
