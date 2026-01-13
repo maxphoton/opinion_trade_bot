@@ -1,7 +1,7 @@
 services:
   bot:
     build: .
-    container_name: opinion_trade_bot
+    container_name: opinion_bot_beta
     restart: always
     env_file:
       - .env
@@ -13,9 +13,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     networks:
-      - trade_bot_network
+      - opinion_bot_network
 
 networks:
-  trade_bot_network:
+  opinion_bot_network:
     driver: bridge
-

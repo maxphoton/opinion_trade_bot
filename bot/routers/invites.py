@@ -9,7 +9,7 @@ import string
 from typing import Dict, List
 
 import aiosqlite
-from database import DB_PATH
+from service.database import DB_PATH
 
 logger = logging.getLogger(__name__)
 

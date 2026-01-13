@@ -1,7 +1,7 @@
 import os
 
-from config import settings
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from service.config import settings
 
 
 def get_master_key() -> bytes:

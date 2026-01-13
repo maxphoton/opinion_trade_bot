@@ -5,16 +5,21 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 ## Features
 
 ### 🔐 Secure Registration with Invite System
-- **Invite-Based Access**: Registration requires a valid invite code (10-character alphanumeric)
-- **Encrypted Storage**: All sensitive data (wallet address, private key, API key) is encrypted using AES-GCM encryption
+- **Two-Step Registration**: 
+  - Step 1: `/start` command - register with invite code (10-character alphanumeric)
+  - Step 2: `/add_account` command - add Opinion account (wallet, private key, API key, proxy)
+- **Multiple Accounts Support**: Each Telegram user can add multiple Opinion accounts
+- **Encrypted Storage**: All sensitive data (wallet address, private key, API key, proxy) is encrypted using AES-GCM encryption
 - **Async SQLite Database**: User credentials are stored locally in an encrypted SQLite database using `aiosqlite` for non-blocking operations
 - **Zero Trust**: Your private keys never leave your server in unencrypted form
 - **Atomic Invite Usage**: Invites are used atomically at the end of registration to prevent conflicts
 - **Data Validation**: 
-  - Wallet address, private key, and API key must be unique
+  - Wallet address, private key, and API key must be unique per account
   - Input trimming (removes leading/trailing whitespace)
-  - Important notes during registration about matching wallet, private key, and API key
-- **Connection Testing**: API connection is tested at the end of registration using `get_my_orders` before saving user data
+  - Important notes during account addition about matching wallet, private key, and API key
+- **Connection Testing**: API connection is tested when adding account using `get_my_orders` before saving account data
+- **Proxy Support**: Each account must have its own proxy (format: `ip:port:username:password`)
+- **Proxy Health Checking**: Automatic background task checks proxy health every 10 minutes
 - **Error Handling**: User-friendly error messages with error codes and timestamps for support reference
 
 ### 🎫 Invite Management (Admin Only)
@@ -24,9 +29,18 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **One-Time Use**: Each invite can only be used once
 - **Unique Codes**: 10-character alphanumeric codes with uniqueness validation
 
-### 👤 User Management (Admin Only)
+### 👤 Account Management
+- **Add Account**: `/add_account` command to add a new Opinion account (wallet, private key, API key, proxy)
+- **List Accounts**: `/list_accounts` command to view all your Opinion accounts
+- **Remove Account**: `/remove_account` command to delete an Opinion account
+- **Check Account**: `/check_account` command to view account statistics (balance, orders, positions)
+- **Multiple Accounts**: Support for multiple Opinion accounts per Telegram user
+- **Account Selection**: When placing orders, you can select which account to use
+
+### 👥 User Management (Admin Only)
 - **User Deletion**: Admin command `/delete_user` allows removing users from the database
-- **Complete Removal**: Deletes user, all their orders, and clears associated invites
+- **Complete Removal**: Deletes user, all their accounts, orders, and clears associated invites
+- **Statistics**: Admin command `/stats` to view database statistics
 - **Re-registration Support**: Deleted users can register again with a new invite code
 
 ### 📊 Market Order Placement
@@ -52,7 +66,7 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Execution Notifications**: Automatic notifications when orders are executed with execution details
 
 ### 🔄 Automatic Order Synchronization
-- **Background Task**: Automatically synchronizes orders every 60 seconds
+- **Current Implementation**: Periodic synchronization via REST API every 60 seconds
 - **Order Status Monitoring**: Checks order status via API before processing
   - Automatically updates database when orders are filled or cancelled externally
   - Sends notifications for filled orders with order details (price, market link)
@@ -68,6 +82,17 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Non-blocking**: All operations are asynchronous and don't block the bot's event loop
 - **Safety Checks**: Only places new orders after successfully canceling old ones
 
+### 🚀 Upcoming: WebSocket-Based Synchronization
+- **Planned Migration**: The bot will soon transition to real-time WebSocket-based order synchronization
+- **Benefits**: 
+  - **Real-time Updates**: Instant price change detection via WebSocket subscriptions to `market.last.trade` channel
+  - **Reduced Latency**: Orders will be repositioned immediately when prices change, instead of waiting up to 60 seconds
+  - **Lower API Load**: WebSocket connections reduce the number of REST API calls needed for price monitoring
+  - **Debounced Processing**: Price updates are debounced (3 seconds) to group frequent changes and reduce unnecessary repositioning
+  - **Automatic Reconnection**: Robust reconnection logic with exponential backoff for connection stability
+- **Implementation Status**: WebSocket synchronization module (`websocket_sync.py`) is implemented and ready for activation
+- **Backward Compatibility**: The new WebSocket system will use the same order synchronization logic, ensuring consistent behavior
+
 ### 📝 Logging & Monitoring
 - **Separate Log Files**: Different log files for different modules:
   - `logs/bot.log` - Main bot operations (INFO level and above)
@@ -75,9 +100,10 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Dual-Level Logging**: 
   - File logs: INFO+ with detailed format including `filename:lineno` for debugging
   - Console logs: WARNING+ with simplified format for important messages only
-- **Detailed Logging**: Comprehensive logging with user IDs, market IDs, and execution times
-- **Performance Monitoring**: Logs start time, end time, and duration for each user's processing
+- **Detailed Logging**: Comprehensive logging with user IDs, account IDs, market IDs, and execution times
+- **Performance Monitoring**: Logs start time, end time, and duration for each account's processing
 - **Error Tracking**: Full traceback logging for debugging
+- **Proxy Status Monitoring**: Automatic proxy health checks with status updates in database
 
 ### 💬 Support System
 - **User Support**: Command `/support` allows users to contact the administrator
@@ -131,7 +157,7 @@ BOT_TOKEN=your_telegram_bot_token
 MASTER_KEY=your_32_byte_hex_encryption_key
 RPC_URL=your_bnb_chain_rpc_url
 ADMIN_TELEGRAM_ID=your_telegram_user_id
-PROXY=host:port:username:password  # Optional
+PROXY=host:port:username:password  # Optional (global proxy for SDK initialization)
 ```
 
 4. Generate a master key for encryption:
@@ -146,25 +172,41 @@ cd bot
 python main.py
 ```
 
+Or using Docker (if Dockerfile is configured):
+```bash
+docker-compose up -d
+```
+
 ## Usage
 
 ### Registration
 
+**Step 1: Register with Invite Code**
 1. Start the bot with `/start`
 2. Enter your invite code (10-character alphanumeric code)
-3. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
+3. You're now registered in the bot system
+
+**Step 2: Add Opinion Account**
+1. Use `/add_account` command to add your Opinion account
+2. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
    - ⚠️ **Important**: Must be the wallet address for which the API key was obtained
-4. Enter your private key
-   - ⚠️ **Important**: Must correspond to the wallet address from step 3
-5. Enter your Opinion Labs API key
-   - ⚠️ **Important**: Must be the API key obtained for the wallet from step 3
+3. Enter your private key
+   - ⚠️ **Important**: Must correspond to the wallet address from step 2
+4. Enter your Opinion Labs API key
+   - ⚠️ **Important**: Must be the API key obtained for the wallet from step 2
+5. Enter your proxy (required, format: `ip:port:username:password`)
+   - Proxy is validated for format and health before saving
+   - Proxy must be working for account to be added
 
 All data is encrypted and stored securely. The bot validates:
-- Uniqueness of wallet address, private key, and API key
-- API connection at the end of registration (using `get_my_orders`)
-- If connection test fails, registration is aborted and you'll need to restart with `/start`
+- Uniqueness of wallet address, private key, and API key per account
+- API connection when adding account (using `get_my_orders`)
+- Proxy format and health (proxy must be working)
+- If connection test fails, account addition is aborted
 
 The invite code is validated and used atomically at the end of registration only if all checks pass.
+
+💡 **Note**: You can add multiple Opinion accounts to one Telegram account. Each account can have its own proxy.
 
 ### Invite Management (Admin Only)
 
@@ -173,19 +215,30 @@ The invite code is validated and used atomically at the end of registration only
 3. View statistics: total, used, and unused invite counts
 4. Share invite codes with users who need access
 
+### Managing Accounts
+
+1. **Add Account**: Use `/add_account` to add a new Opinion account
+2. **List Accounts**: Use `/list_accounts` to view all your Opinion accounts
+3. **Remove Account**: Use `/remove_account` to delete an Opinion account
+4. **Check Account**: Use `/check_account` to view account statistics:
+   - USDT balance
+   - Active orders count
+   - Positions information
+
 ### Placing Orders
 
 1. Use `/make_market` to start the order placement flow
-2. Enter a market URL from Opinion.trade (e.g., `https://app.opinion.trade/detail?topicId=155`)
-3. For categorical markets, select a submarket
-4. Review market information (spread, liquidity, best bids/asks)
-5. Enter the farming amount in USDT
-6. Select side (YES or NO)
-7. View top 5 bids and asks
-8. Set price offset in cents relative to best bid
-9. Choose direction (BUY or SELL)
-10. Set reposition threshold (minimum price change in cents to trigger repositioning, default 0.5)
-11. Confirm and place the order
+2. **Select Account**: Choose which Opinion account to use (if you have multiple)
+3. Enter a market URL from Opinion.trade (e.g., `https://app.opinion.trade/detail?topicId=155`)
+4. For categorical markets, select a submarket
+5. Review market information (spread, liquidity, best bids/asks)
+6. Enter the farming amount in USDT
+7. Select side (YES or NO)
+8. View top 5 bids and asks
+9. Set price offset in cents relative to best bid
+10. Choose direction (BUY or SELL)
+11. Set reposition threshold (minimum price change in cents to trigger repositioning, default 0.5)
+12. Confirm and place the order
 
 ### Managing Orders
 
@@ -222,20 +275,34 @@ The invite code is validated and used atomically at the end of registration only
 
 ```
 bot/
-├── main.py                  # Main bot entry point, background tasks, admin commands
-├── config.py                # Configuration and settings management
-├── database.py              # Async database operations (aiosqlite)
-├── aes.py                   # AES-GCM encryption utilities
-├── client_factory.py         # Opinion SDK client creation and proxy setup
-├── spam_protection.py       # Anti-spam middleware
-├── logger_config.py         # Logging configuration and setup
+├── main.py                  # Main bot entry point, background tasks
 ├── help_text.py             # Multi-language help text (English, Russian, Chinese)
-├── start_router.py          # User registration flow (/start command)
-├── market_router.py         # Market order placement flow (/make_market command)
-├── orders_dialog.py         # Order management dialog (/orders command)
-├── sync_orders.py           # Automatic order synchronization background task
-├── opinion_api_wrapper.py   # Opinion API wrapper functions (async)
-├── invites.py               # Invite management functions
+├── routers/                 # Bot command routers
+│   ├── start.py             # User registration flow (/start command)
+│   ├── account.py           # Account management (/add_account, /list_accounts, /remove_account)
+│   ├── make_market.py        # Market order placement flow (/make_market command)
+│   ├── orders.py            # Orders management router (/orders command)
+│   ├── orders_dialog.py     # Order management dialog (aiogram-dialog)
+│   ├── users.py             # User commands (/help, /support, /check_account)
+│   ├── admin.py             # Admin commands (/get_db, /get_invites, /delete_user, /stats)
+│   └── invites.py           # Invite management functions
+├── service/                 # Core services
+│   ├── config.py            # Configuration and settings management
+│   ├── database.py          # Async database operations (aiosqlite)
+│   ├── aes.py               # AES-GCM encryption utilities
+│   ├── logger_config.py     # Logging configuration and setup
+│   └── proxy_checker.py     # Proxy health checking
+├── opinion/                 # Opinion.trade integration
+│   ├── client_factory.py    # Opinion SDK client creation and proxy setup
+│   ├── opinion_api_wrapper.py  # Opinion API wrapper functions (async)
+│   ├── sync_orders.py       # Automatic order synchronization background task (REST API)
+│   └── websocket_sync.py    # WebSocket-based real-time order synchronization (planned)
+├── middlewares/             # Bot middlewares
+│   ├── spam_protection.py   # Anti-spam middleware
+│   └── typing_middleware.py # Typing indicator middleware
+├── logs/                    # Log files directory
+│   ├── bot.log              # Main bot operations log
+│   └── sync_orders.log      # Order synchronization log
 └── users.db                 # SQLite database (created automatically)
 ```
 
@@ -243,11 +310,32 @@ bot/
 
 The bot uses a modular router-based architecture:
 
-- **Routers**: Separate routers for different features (`start_router`, `market_router`)
+- **Routers**: Separate routers for different features organized in `routers/` directory
+  - `start.py` - User registration
+  - `account.py` - Account management
+  - `make_market.py` - Order placement
+  - `orders.py` / `orders_dialog.py` - Order management
+  - `users.py` - User commands (help, support, check_account)
+  - `admin.py` - Admin commands
+- **Services**: Core services in `service/` directory
+  - `config.py` - Configuration management
+  - `database.py` - Database operations
+  - `aes.py` - Encryption utilities
+  - `proxy_checker.py` - Proxy health checking
+- **Opinion Integration**: Opinion.trade integration in `opinion/` directory
+  - `client_factory.py` - SDK client creation
+  - `opinion_api_wrapper.py` - API wrapper functions
+  - `sync_orders.py` - Order synchronization (current: REST API polling)
+  - `websocket_sync.py` - WebSocket-based real-time synchronization (planned)
 - **Async Database**: All database operations use `aiosqlite` for non-blocking I/O
-- **Background Tasks**: Order synchronization runs as an independent async task
+- **Background Tasks**: 
+  - Order synchronization runs every 60 seconds (REST API polling)
+  - Proxy health checking runs every 10 minutes
+  - WebSocket synchronization (planned) will provide real-time updates instead of periodic polling
 - **Dialogs**: Complex multi-step interactions use `aiogram-dialog` for better UX
-- **Middleware**: Global anti-spam protection for all messages and callbacks
+- **Middleware**: 
+  - Global anti-spam protection for all messages and callbacks
+  - Typing indicator middleware for better UX
 - **API Wrapper**: Centralized async wrapper for Opinion API calls
 
 ## Security
@@ -267,42 +355,57 @@ The bot supports the following environment variables:
 - `MASTER_KEY`: 32-byte hex key for encryption (required)
 - `RPC_URL`: BNB Chain RPC endpoint (required)
 - `ADMIN_TELEGRAM_ID`: Telegram user ID for admin commands (required for invite management)
-- `PROXY`: Proxy configuration in format `host:port:username:password` (optional)
+- `PROXY`: Global proxy configuration in format `host:port:username:password` (optional, for SDK initialization)
+- `WEBSOCKET_API_KEY`: Opinion Labs API key for WebSocket connections (optional, for future WebSocket synchronization feature)
+
+**Note**: Each Opinion account must have its own proxy configured via `/add_account`. Account-specific proxy is required and takes precedence over the global proxy setting.
 
 ## Commands
 
 ### User Commands
-- `/start` - Register and set up your account (requires invite code)
+- `/start` - Register with invite code
+- `/add_account` - Add a new Opinion account (wallet, private key, API key, proxy)
+- `/list_accounts` - View all your Opinion accounts
+- `/remove_account` - Remove an Opinion account
+- `/check_account` - View account statistics (balance, orders, positions)
 - `/make_market` - Start placing a limit order
 - `/orders` - View, search, and manage your orders
 - `/help` - View comprehensive bot instructions (available in English, Russian, and Chinese)
 - `/support` - Contact administrator with questions or issues (supports text and photos)
 
 ### Admin Commands
-- `/get_db` - Export user database (admin only)
+- `/get_db` - Export user database and logs as ZIP archive (admin only)
 - `/get_invites` - Get 10 unused invite codes with statistics (admin only)
 - `/delete_user` - Delete a user from the database (admin only)
+- `/stats` - View database statistics (admin only)
 
 ## Automatic Order Synchronization
 
-The bot automatically synchronizes your orders every 60 seconds:
+### Current Implementation (REST API Polling)
+
+The bot currently synchronizes your orders every 60 seconds using REST API polling:
 
 ### How it works:
-1. **Status Check**: For each pending order, checks status via API
-   - If order is finished: updates database to 'finished', sends notification with order details (price, market link)
-   - If order is canceled: updates database to 'canceled', skips processing silently (no notification)
-   - If status check fails: continues with normal processing (graceful degradation)
+1. **Order Retrieval**: Retrieves all pending orders with account information from the database
+2. **Account Grouping**: Groups orders by account_id for efficient processing
+3. **Account Processing**: For each account:
+   - **Proxy Check**: Skips accounts with `failed` proxy status
+   - **Client Creation**: Creates Opinion SDK client for the account
+   - **Status Check**: For each pending order, checks status via API
+     - If order is finished: updates database to 'finished', sends notification with order details (price, market link)
+     - If order is canceled: updates database to 'canceled', skips processing silently (no notification)
+     - If status check fails: continues with normal processing (graceful degradation)
+   - **Price Monitoring**: Monitors market prices and maintains a constant offset (in ticks) between the current market price and your order's target price
+   - **Smart Updates**: Only moves orders when the price change exceeds the reposition threshold (default 0.5 cents)
+   - **Batch Operations**: Efficiently cancels and places orders in batches per account
+   - **Database Updates**: Updates database only for successfully placed orders
+   - **Notifications**: Sends notifications for important events
 
-2. **Price Monitoring**: Monitors market prices and maintains a constant offset (in ticks) between the current market price and your order's target price
-
-3. **Smart Updates**: Only moves orders when the price change exceeds the reposition threshold (default 0.5 cents)
-
-4. **Batch Operations**: Efficiently cancels and places orders in batches per user
-
-5. **Notifications**: You'll receive notifications when:
-   - Market price changes and orders need to be moved (before repositioning)
+4. **Notifications**: You'll receive notifications when:
+   - Market price changes and orders need to be moved (before repositioning, only if order will be repositioned)
    - Orders are successfully updated with new prices (after repositioning)
    - Orders are filled (with order details and market link)
+   - Cancellation errors occur (with detailed error messages)
    - Placement errors occur (with detailed error messages)
 
 ### Features:
@@ -310,7 +413,22 @@ The bot automatically synchronizes your orders every 60 seconds:
 - **Reliability**: Only places new orders after successfully canceling old ones
 - **Safety**: Validates all operations via API response codes (errno == 0)
 - **User Awareness**: Detailed notifications for all important events
-- **Performance**: Logs execution time for each user's processing
+- **Performance**: Logs execution time for each account's processing
+- **Proxy Support**: Automatically skips accounts with failed proxies
+- **Account Isolation**: Each account is processed independently with its own API client
+
+### Planned: WebSocket-Based Real-Time Synchronization
+
+The bot will soon transition to WebSocket-based synchronization for real-time order updates:
+
+- **Real-Time Price Updates**: Subscribes to `market.last.trade` WebSocket channel for instant price change notifications
+- **Immediate Repositioning**: Orders are repositioned immediately when prices change, eliminating the 60-second polling delay
+- **Debounced Processing**: Price updates are debounced (3 seconds) to group frequent changes and reduce unnecessary API calls
+- **Automatic Market Subscription**: Automatically subscribes to all markets with active orders on startup
+- **Dynamic Subscription Management**: Automatically subscribes/unsubscribes when orders are created/cancelled
+- **Robust Reconnection**: Automatic reconnection with exponential backoff (1s to 60s) for connection stability
+- **Heartbeat Support**: Sends heartbeat messages every 30 seconds to keep connection alive
+- **Same Core Logic**: Uses the same proven order synchronization logic from `sync_orders.py` for consistency
 
 ## Dependencies
 
@@ -322,23 +440,35 @@ The bot automatically synchronizes your orders every 60 seconds:
 - `pydantic==2.12.5` - Settings management
 - `pydantic-settings==2.12.0` - Environment variable settings
 - `python-dotenv==1.2.1` - Environment variable loading
+- `httpx==0.28.1` - HTTP client for proxy checking
+- `websockets==14.0` - WebSocket client for real-time order synchronization (planned)
+- `pytest==9.0.2` - Testing framework (development)
+- `pytest-asyncio==1.3.0` - Async test support (development)
 
 ## Technical Details
 
 ### Async Architecture
 - All database operations use `aiosqlite` for true async I/O
 - API calls are wrapped in `asyncio.to_thread()` to prevent blocking
-- Background tasks run independently without blocking the main event loop
+- Background tasks run independently without blocking the main event loop:
+  - Order synchronization: runs every 60 seconds (REST API polling, current implementation)
+  - WebSocket synchronization: real-time updates via WebSocket subscriptions (planned)
+  - Proxy health checking: runs every 10 minutes
 - Opinion API wrapper provides async interface for synchronous SDK
+- All routers and handlers are fully async
 
 ### Order Synchronization Algorithm
-1. Retrieves all users from the database
-2. For each user:
-   - Gets active orders from the database
+1. Retrieves all pending orders with account information from the database
+2. Groups orders by account_id
+3. For each account:
+   - Skips accounts with `failed` proxy status
+   - Creates Opinion SDK client for the account
+   - Gets active orders from the database for this account
    - For each order:
      - **Status Check**: Checks order status via API
        - If filled: updates DB, sends notification, skips processing
        - If cancelled: updates DB, skips processing
+       - If status check fails: continues with normal processing (graceful degradation)
      - Fetches current market price (best_bid for BUY, best_ask for SELL)
      - Calculates new target price using saved `offset_ticks`
      - Calculates price change in cents
@@ -349,6 +479,7 @@ The bot automatically synchronizes your orders every 60 seconds:
    - Updates database with new order parameters (only for successful placements)
    - Sends order update notification (for successful placements)
    - Sends error notification (for failed placements)
+4. Logs statistics: total cancelled, placed, errors
 
 ### Invite System
 - Invites are stored in `invites` table with fields: id, invite (unique), telegram_id, created_at, used_at
@@ -358,19 +489,52 @@ The bot automatically synchronizes your orders every 60 seconds:
 - System automatically creates new invites if needed
 
 ### Database Schema
-- **users**: Encrypted user credentials (wallet, private key, API key)
+- **users**: Basic user information
   - `telegram_id` (PRIMARY KEY): User's Telegram ID
+  - `username`: Telegram username
+  - `created_at`: Registration timestamp
+- **opinion_accounts**: Encrypted Opinion account credentials
+  - `account_id` (PRIMARY KEY): Auto-increment account ID
+  - `telegram_id` (FOREIGN KEY): Reference to users table
+  - `wallet_address_cipher`, `wallet_nonce`: Encrypted wallet address
+  - `private_key_cipher`, `private_key_nonce`: Encrypted private key
+  - `api_key_cipher`, `api_key_nonce`: Encrypted API key
+  - `proxy_cipher`, `proxy_nonce`: Encrypted proxy (required for each account)
+  - `proxy_status`: Proxy health status (`active`, `failed`, `unknown`)
+  - `proxy_last_check`: Last proxy health check timestamp
   - All sensitive data encrypted with AES-GCM
-  - Unique constraints on wallet address, private key, and API key
-- **orders**: Order information (order_id, market_id, prices, amounts, status, etc.)
-  - Status values: `pending`, `finished`, `canceled` (aligned with API terminology)
-  - Default status: `pending`
-  - Migration function updates old statuses automatically
+  - Unique constraints on wallet address, private key, and API key per account
+- **orders**: Order information
+  - `id` (PRIMARY KEY): Auto-increment order ID
+  - `account_id` (FOREIGN KEY): Reference to opinion_accounts table
+  - `order_id`: Opinion.trade order ID
+  - `market_id`, `market_title`: Market information
+  - `token_id`, `token_name`: Token information (YES/NO)
+  - `side`: Order side (BUY/SELL)
+  - `current_price`, `target_price`: Price information
+  - `offset_ticks`, `offset_cents`: Price offset
+  - `amount`: Order amount in USDT
+  - `status`: Order status (`pending`, `finished`, `canceled`)
+  - `reposition_threshold_cents`: Minimum price change to trigger repositioning
+  - `created_at`: Order creation timestamp
 - **invites**: Invite codes and usage tracking
+  - `id` (PRIMARY KEY): Auto-increment invite ID
+  - `invite` (UNIQUE): 10-character alphanumeric invite code
+  - `telegram_id`: User who used the invite (NULL if unused)
+  - `created_at`: Invite creation timestamp
+  - `used_at`: Invite usage timestamp (NULL if unused)
 
 ## Disclaimer
 
 This bot is provided as-is for educational and personal use. Always ensure you understand the risks involved in trading on prediction markets. The developers are not responsible for any financial losses.
+
+## Testing
+
+The project includes comprehensive tests for the order synchronization module. See [tests/README.md](tests/README.md) for detailed information about:
+- Test structure and coverage
+- How to run tests
+- Test configuration
+- Covered test cases
 
 ## Support
 
