@@ -37,7 +37,7 @@ class AntiSpamMiddleware(BaseMiddleware):
         if uid in self.user_blocked_until and now < self.user_blocked_until[uid]:
             logger.warning(f"Пользователь {user.full_name} заблокирован за спам")
             await self.bot.send_message(
-                uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд."
+                uid, "🚫 Please don't spam. Wait 30 seconds."
             )
             return
 
@@ -54,7 +54,7 @@ class AntiSpamMiddleware(BaseMiddleware):
                 f"🔒 Пользователь {user.full_name} временно заблокирован за спам"
             )
             await self.bot.send_message(
-                uid, "🚫 Пожалуйста, не спамьте. Подождите 30 секунд."
+                uid, "🚫 Please don't spam. Wait 30 seconds."
             )
             return
 

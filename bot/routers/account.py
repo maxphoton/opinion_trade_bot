@@ -377,10 +377,10 @@ Use /add_account to add your first Opinion account."""
         if account.get("proxy_str"):
             proxy_parts = account["proxy_str"].split(":")
             proxy_info = (
-                f"\n   Proxy: {proxy_parts[0]}:{proxy_parts[1]} ({proxy_status})"
+                f"\n\n🔐 Proxy: {proxy_parts[0]}:{proxy_parts[1]} ({proxy_status})"
             )
         else:
-            proxy_info = "\n   Proxy: Not configured"
+            proxy_info = "\n\n🔐 Proxy: Not configured"
 
         accounts_list.append(
             f"{i}. Account ID: {account_id}\n"

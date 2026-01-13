@@ -28,7 +28,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • <b>/add_account</b> — добавить новый аккаунт Opinion
 • <b>/list_accounts</b> — просмотреть все ваши аккаунты
 • <b>/remove_account</b> — удалить аккаунт
-• <b>/check_account</b> — проверить баланс, ордера и позиции аккаунта
+• <b>/check_account</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется и обновляется статус прокси аккаунта
 
 <b>📊 Размещение ордера (/make_market):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
@@ -80,7 +80,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • Ошибках отмены или размещения ордера
 
 <b>🔍 Проверка прокси:</b>
-Бот автоматически проверяет работоспособность прокси каждые 10 минут. Аккаунты с неработающим прокси (статус "failed") пропускаются при синхронизации ордеров.
+Бот автоматически проверяет работоспособность прокси каждые 5 минут и обновляет статус при временных сбоях. Аккаунты с неработающим прокси (статус "failed") пропускаются при синхронизации ордеров. Статус прокси также отображается в команде /check_account и обновляется при каждом ее вызове.
 
 <b>💬 Поддержка:</b>
 По всем вопросам обращайтесь через команду <b>/support</b>
@@ -112,7 +112,7 @@ The bot automatically maintains limit orders, preventing them from being execute
 • <b>/add_account</b> — add a new Opinion account
 • <b>/list_accounts</b> — view all your accounts
 • <b>/remove_account</b> — remove an account
-• <b>/check_account</b> — check account balance, orders, and positions
+• <b>/check_account</b> — check account balance, orders, and positions. When called, it automatically checks and updates the account's proxy status
 
 <b>📊 Placing an Order (/make_market):</b>
 1. <b>Select Account</b> — if you have multiple accounts
@@ -164,7 +164,7 @@ The bot sends notifications about:
 • Cancellation or placement errors
 
 <b>🔍 Proxy Health Checking:</b>
-The bot automatically checks proxy health every 10 minutes. Accounts with failed proxies (status "failed") are skipped during order synchronization.
+The bot automatically checks proxy health every 5 minutes and updates the status if there was a temporary failure. Accounts with failed proxies (status "failed") are skipped during order synchronization. Proxy status is also displayed in the /check_account command and is updated each time the command is called.
 
 <b>💬 Support:</b>
 For all questions, contact us via the <b>/support</b> command
@@ -196,7 +196,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • <b>/add_account</b> — 添加新的Opinion账户
 • <b>/list_accounts</b> — 查看所有账户
 • <b>/remove_account</b> — 删除账户
-• <b>/check_account</b> — 检查账户余额、订单和持仓
+• <b>/check_account</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
 
 <b>📊 下订单 (/make_market):</b>
 1. <b>选择账户</b> — 如果您有多个账户
@@ -248,7 +248,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • 取消或下单错误
 
 <b>🔍 代理健康检查:</b>
-机器人每10分钟自动检查代理健康状态。代理失败的账户（状态"failed"）在订单同步期间会被跳过。
+机器人每5分钟自动检查代理健康状态，并在出现临时故障时更新状态。代理失败的账户（状态"failed"）在订单同步期间会被跳过。代理状态也会在 /check_account 命令中显示，并在每次调用时更新。
 
 <b>💬 支持:</b>
 如有任何问题，请通过 <b>/support</b> 命令联系我们

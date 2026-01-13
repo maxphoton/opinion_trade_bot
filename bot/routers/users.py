@@ -162,7 +162,7 @@ async def show_account_info(message: Message, account_id: int):
         if account.get("proxy_str"):
             proxy_str = account["proxy_str"]
             proxy_parts = proxy_str.split(":")
-            proxy_info = f"\n   Proxy: {proxy_parts[0]}:{proxy_parts[1]}"
+            proxy_info = f"\n\n🔐 Proxy: {proxy_parts[0]}:{proxy_parts[1]}"
 
             # Выполняем реальную проверку прокси
             logger.info(f"Проверка прокси для аккаунта {account_id}")
@@ -176,9 +176,9 @@ async def show_account_info(message: Message, account_id: int):
                 proxy_status, "❓"
             )
             proxy_info += f" {status_emoji} ({proxy_status})"
-            proxy_info += f"\n   Last check: {current_time[:16]}"
+            proxy_info += f"\n🕒 Last check: {current_time[:16]}"
         else:
-            proxy_info = "\n   Proxy: Not configured"
+            proxy_info = "\n\n🔐 Proxy: Not configured"
 
         wallet = account["wallet_address"]
 

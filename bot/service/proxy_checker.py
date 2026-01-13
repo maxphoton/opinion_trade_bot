@@ -200,17 +200,17 @@ async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
         try:
             if old_status == "working" and new_status == "failed":
                 # Прокси перестал работать
-                message = f"""⚠️ <b>Прокси не работает</b>
+                message = f"""⚠️ <b>Proxy is not working</b>
 
-Прокси для аккаунта Opinion перестал работать.
+Proxy for Opinion account has stopped working.
 
-Аккаунт: {account["wallet_address"][:10]}...
+Account: {account["wallet_address"][:10]}...
 
-Статус прокси: <b>failed</b>
+Proxy status: <b>failed</b>
 
-Ордера этого аккаунта не будут синхронизироваться до восстановления работы прокси.
+Orders for this account will not be synchronized until the proxy is restored.
 
-Прокси будет автоматически проверяться каждые 10 минут."""
+The proxy will be automatically checked every 10 minutes."""
                 await bot.send_message(
                     chat_id=telegram_id, text=message, parse_mode="HTML"
                 )
@@ -219,15 +219,15 @@ async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
                 )
             elif old_status == "failed" and new_status == "working":
                 # Прокси восстановился
-                message = f"""✅ <b>Прокси восстановлен</b>
+                message = f"""✅ <b>Proxy restored</b>
 
-Прокси для аккаунта Opinion снова работает.
+Proxy for Opinion account is working again.
 
-Аккаунт: {account["wallet_address"][:10]}...
+Account: {account["wallet_address"][:10]}...
 
-Статус прокси: <b>working</b>
+Proxy status: <b>working</b>
 
-Синхронизация ордеров возобновлена."""
+Order synchronization has been resumed."""
                 await bot.send_message(
                     chat_id=telegram_id, text=message, parse_mode="HTML"
                 )
