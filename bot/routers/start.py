@@ -11,8 +11,9 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
-from routers.invites import is_invite_valid, use_invite
 from service.database import get_user, save_user
+
+from routers.invites import is_invite_valid, use_invite
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +48,20 @@ async def cmd_start(message: Message, state: FSMContext):
 Use the /make_market command to place an order.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
+Use the /list_accounts command to view all your accounts.
 Use the /help command to view instructions.
-Use the /support command to contact administrator."""
+Use the /support command to contact administrator.
+
+🚀 Subscribe for best strategies, updates and VIP access @cmchn_public"""
         )
         return
 
     # Запрашиваем инвайт
     await message.answer(
-        """🔐 Bot Registration
+        """ Welcome!
+🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
+        
+🔐 Step 1: Bot Registration
 
 To register, you need an invite code.
 
@@ -118,7 +125,7 @@ Please start registration again with /start using a valid invite code."""
 
 Now you need to add your Opinion account.
 
-Use the /add_account command to add your first Opinion account with wallet address, private key, and API key.
+Step 2: Use the /add_account command to add your first Opinion account with wallet address, private key, and API key.
 
 After adding an account, you can:
 • Use /make_market to place orders

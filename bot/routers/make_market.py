@@ -255,7 +255,10 @@ async def place_order(
         Tuple[bool, Optional[str], Optional[str]]: (success, order_id, error_message)
     """
     try:
-        client.enable_trading()
+        # client.enable_trading()
+        # enable_trading() не требуется, так как check_approval=True в place_order()
+        # автоматически проверяет и включает торговлю при необходимости.
+        # SDK кэширует результат на enable_trading_check_interval (1 час).
 
         price = float(order_params["price"])
         price_rounded = round(price, 3)  # API requires max 3 decimal places
@@ -283,11 +286,35 @@ async def place_order(
             makerAmountInQuoteToken=order_params["amount"],
         )
 
+        # Логируем параметры перед вызовом
+        logger.info(
+            f"Placing order with params: market_id={order_params['market_id']}, "
+            f"token_id={order_params['token_id']}, side={order_params['side']}, "
+            f"price={price_rounded}, amount={order_params['amount']}"
+        )
+        logger.info(
+            f"Order data object: {order_data}, order_data attributes: {dir(order_data)}"
+        )
+
         # Обертываем синхронный вызов API в asyncio.to_thread, чтобы не блокировать event loop
         def _place_order_sync():
             return client.place_order(order_data, check_approval=True)
 
         result = await asyncio.to_thread(_place_order_sync)
+
+        # Логируем весь объект result при ошибке
+        if result.errno != 0:
+            # Пытаемся получить все доступные атрибуты
+            result_dict = {}
+            for attr in dir(result):
+                if not attr.startswith("_"):
+                    try:
+                        value = getattr(result, attr)
+                        if not callable(value):
+                            result_dict[attr] = value
+                    except Exception:
+                        pass
+            logger.error(f"Result error object all attributes: {result_dict}")
 
         if result.errno == 0:
             order_id = "N/A"
@@ -306,11 +333,21 @@ async def place_order(
                 if hasattr(result, "errmsg") and result.errmsg
                 else f"Error code: {result.errno}"
             )
-            logger.error(f"Error placing order: {error_msg}")
+            logger.error(
+                f"Error placing order: {error_msg}\n"
+                f"  - errno: {result.errno}\n"
+                f"  - errmsg: {getattr(result, 'errmsg', None)}\n"
+                f"  - Full result: {result}"
+            )
             return False, None, error_msg
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Error placing order: {error_msg}")
+        logger.error(
+            f"Exception while placing order: {error_msg}\n"
+            f"  - Exception type: {type(e).__name__}\n"
+            f"  - Exception args: {e.args}\n"
+            f"  - Full traceback:\n{traceback.format_exc()}"
+        )
         return False, None, error_msg
 
 
@@ -1179,6 +1216,7 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
+Use the /list_accounts command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )

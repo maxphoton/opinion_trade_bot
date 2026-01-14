@@ -19,6 +19,7 @@ async def handle_unknown_message(message: Message):
         """Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
+Use the /list_accounts command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )

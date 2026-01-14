@@ -13,6 +13,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • После успешной регистрации вы получите доступ к боту
 
 <b>Шаг 2:</b> Команда <b>/add_account</b>
+📹 <a href="https://t.me/cmchn_public/165">Видео гайд по добавлению аккаунта</a>
 • Добавьте аккаунт Opinion для работы с ордерами
 • При добавлении аккаунта укажите:
   • <b>Кошелек</b> — тот, для которого получен API ключ
@@ -97,6 +98,7 @@ The bot automatically maintains limit orders, preventing them from being execute
 • After successful registration, you'll get access to the bot
 
 <b>Step 2:</b> Command <b>/add_account</b>
+📹 <a href="https://t.me/cmchn_public/165">Video guide on adding an account</a>
 • Add an Opinion account to work with orders
 • When adding an account, specify:
   • <b>Wallet</b> — the one for which the API key was obtained
@@ -181,6 +183,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • 注册成功后，您将获得对机器人的访问权限
 
 <b>步骤2:</b> 命令 <b>/add_account</b>
+📹 <a href="https://t.me/cmchn_public/165">添加账户视频指南</a>
 • 添加Opinion账户以处理订单
 • 添加账户时，请指定：
   • <b>钱包</b> — 获取API密钥的钱包

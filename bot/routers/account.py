@@ -73,9 +73,14 @@ async def cmd_add_account(message: Message, state: FSMContext):
 
     await message.answer_photo(
         photo=photo,
-        caption="""🔐 Add Opinion Account
+        caption="""🔐 Bot Registration
+    
+⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
+The data is never used in its raw form and is not shared with third parties.
 
-Please enter your wallet address:""",
+Please enter your Balance spot address found <a href="https://app.opinion.trade?code=BJea79">in your profile</a>:
+
+⚠️ Important: You must specify the spot address for which you received the API key.""",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(AddAccountStates.waiting_wallet)
@@ -120,9 +125,9 @@ Please enter a different wallet address:"""
     builder.button(text="✖️ Cancel", callback_data="cancel_add_account")
 
     await message.answer(
-        """✅ Wallet address saved.
+        """Please enter your private key:
 
-Please enter your private key:""",
+⚠️ Important: You must specify the private key of the wallet you registered with (the same wallet address you entered above).""",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(AddAccountStates.waiting_private_key)
@@ -158,9 +163,9 @@ Please enter a different private key:"""
     builder.button(text="✖️ Cancel", callback_data="cancel_add_account")
 
     await message.answer(
-        """✅ Private key saved.
+        """Please enter your Opinion Labs API key, which you can obtain by completing <a href="https://docs.google.com/forms/d/1h7gp8UffZeXzYQ-lv4jcou9PoRNOqMAQhyW4IwZDnII/viewform?edit_requested=true">the form</a>:
 
-Please enter your API key:""",
+⚠️ Important: You must enter the API key that was obtained for the wallet address from step 1.""",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(AddAccountStates.waiting_api_key)
@@ -388,6 +393,8 @@ Use /add_account to add your first Opinion account."""
         )
 
     message_text = f"""📋 Your Opinion Accounts
+
+You can use /add_account, /remove_account or /check_account commands
 
 {chr(10).join(accounts_list)}
 
