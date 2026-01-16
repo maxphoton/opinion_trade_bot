@@ -28,7 +28,9 @@ PROCESS OVERVIEW:
    For each active order (after status check):
    a. Gets current market price from orderbook:
       - For BUY orders: uses best_bid (highest bid price)
-      - For SELL orders: uses best_ask (lowest ask price)
+        When price goes DOWN (best_bid decreases), order gets closer to execution
+      - For SELL orders: uses best_bid (highest bid price)
+        When price goes UP (best_bid increases), order gets closer to execution
    b. Calculates new target price using saved offset_ticks from database:
       - BUY: new_target_price = current_price - (offset_ticks * TICK_SIZE)
       - SELL: new_target_price = current_price + (offset_ticks * TICK_SIZE)
@@ -151,7 +153,10 @@ def get_current_market_price(client, token_id: str, side: str) -> Optional[float
     Args:
         client: Клиент Opinion SDK
         token_id: ID токена (YES или NO)
-        side: BUY или SELL - определяет, какую цену брать (best_bid для BUY, best_ask для SELL)
+        side: BUY или SELL - определяет, какую цену брать
+              Для BUY и SELL используется best_bid (самый высокий бид):
+              - BUY: когда цена ВНИЗ (best_bid уменьшается), ордер ближе к исполнению
+              - SELL: когда цена ВВЕРХ (best_bid увеличивается), ордер ближе к исполнению
 
     Returns:
         Текущая цена или None в случае ошибки
@@ -172,36 +177,22 @@ def get_current_market_price(client, token_id: str, side: str) -> Optional[float
         )
 
         bids = orderbook.bids if hasattr(orderbook, "bids") else []
-        asks = orderbook.asks if hasattr(orderbook, "asks") else []
 
-        if side == "BUY":
-            # Для BUY берем best_bid (самый высокий бид)
-            if bids and len(bids) > 0:
-                # Сортируем биды по убыванию цены
-                bid_prices = []
-                for bid in bids:
-                    if hasattr(bid, "price"):
-                        try:
-                            price = float(bid.price)
-                            bid_prices.append(price)
-                        except (ValueError, TypeError):
-                            continue
-                if bid_prices:
-                    return max(bid_prices)  # Самый высокий бид
-        else:  # SELL
-            # Для SELL берем best_ask (самый низкий аск)
-            if asks and len(asks) > 0:
-                # Сортируем аски по возрастанию цены
-                ask_prices = []
-                for ask in asks:
-                    if hasattr(ask, "price"):
-                        try:
-                            price = float(ask.price)
-                            ask_prices.append(price)
-                        except (ValueError, TypeError):
-                            continue
-                if ask_prices:
-                    return min(ask_prices)  # Самый низкий аск
+        # Для BUY и SELL используем best_bid (самый высокий бид)
+        # BUY: когда цена ВНИЗ (best_bid уменьшается), ордер ближе к исполнению
+        # SELL: когда цена ВВЕРХ (best_bid увеличивается), ордер ближе к исполнению
+        if bids and len(bids) > 0:
+            # Сортируем биды по убыванию цены
+            bid_prices = []
+            for bid in bids:
+                if hasattr(bid, "price"):
+                    try:
+                        price = float(bid.price)
+                        bid_prices.append(price)
+                    except (ValueError, TypeError):
+                        continue
+            if bid_prices:
+                return max(bid_prices)  # Самый высокий бид
 
         logger.warning(
             f"Не удалось определить текущую цену для токена {token_id}, side={side}"
