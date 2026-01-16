@@ -22,8 +22,13 @@ from database import (
     get_user,
     save_user,
 )
-from invites import is_invite_valid, use_invite
-from opinion_api_wrapper import get_my_orders
+from invites import is_invite_valid  # , use_invite  # Временно отключено
+from opinion_api_wrapper import (
+    ORDER_STATUS_PENDING,
+    get_my_orders,
+    get_my_positions,
+    get_usdt_balance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +72,30 @@ Use the /support command to contact administrator."""
         return
 
     # Запрашиваем инвайт
-    await message.answer(
-        """🔐 Bot Registration
+    # await message.answer(
+    #     """🔐 Bot Registration
+    #
+    # To register, you need an invite code.
+    #
+    # Please enter your invite code:"""
+    # )
+    # await state.set_state(RegistrationStates.waiting_invite)
 
-To register, you need an invite code.
+    # Временно пропускаем инвайт и сразу переходим к запросу кошелька
+    photo_path = Path(__file__).parent.parent / "files" / "spot_addr.png"
+    photo = FSInputFile(str(photo_path))
+    await message.answer_photo(
+        photo,
+        caption="""🔐 Bot Registration
+    
+⚠️ Attention: All data (wallet address, private key, API key) is encrypted using a private encryption key and stored in an encrypted form.
+The data is never used in its raw form and is not shared with third parties.
 
-Please enter your invite code:"""
+Please enter your Balance spot address found <a href="https://app.opinion.trade?code=BJea79">in your profile</a>:
+
+⚠️ Important: You must specify the spot address for which you received the API key.""",
     )
-    await state.set_state(RegistrationStates.waiting_invite)
+    await state.set_state(RegistrationStates.waiting_wallet)
 
 
 @start_router.message(RegistrationStates.waiting_invite)
@@ -218,8 +239,15 @@ Please enter a different API key:"""
     private_key = data["private_key"].strip()
     api_key_clean = api_key.strip()
 
-    # Проверяем подключение к API перед сохранением в БД
-    await message.answer("""🔍 Verifying connection to API...""")
+    # Проверяем подключение к API и получаем статистику перед сохранением в БД
+    await message.answer(
+        """🔍 Verifying connection to API and retrieving account statistics..."""
+    )
+
+    balance = 0.0
+    open_orders_count = 0
+    positions_count = 0
+    total_value = 0.0
 
     try:
         # Создаем временный словарь с данными пользователя для проверки
@@ -232,10 +260,27 @@ Please enter a different API key:"""
         # Пытаемся создать клиент
         test_client = create_client(test_user_data)
 
-        # Пытаемся получить ордера пользователя для проверки подключения
-        orders = await get_my_orders(
-            test_client, market_id=0, status="", limit=1, page=1
-        )
+        # Получаем данные аккаунта
+        balance = await get_usdt_balance(test_client)
+        open_orders = await get_my_orders(test_client, status=ORDER_STATUS_PENDING)
+        positions = await get_my_positions(test_client, limit=100)
+
+        # Подсчитываем количество открытых ордеров
+        open_orders_count = len(open_orders) if open_orders else 0
+
+        # Подсчитываем количество позиций
+        positions_count = len(positions) if positions else 0
+
+        # Вычисляем общую стоимость позиций
+        if positions:
+            for position in positions:
+                try:
+                    value_str = getattr(position, "current_value_in_quote_token", "0")
+                    value = float(value_str) if value_str else 0.0
+                    total_value += value
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Ошибка при парсинге стоимости позиции: {e}")
+                    continue
 
         # Если дошли сюда без исключений, значит подключение успешно
         logger.info(f"Успешная проверка подключения для пользователя {telegram_id}")
@@ -263,17 +308,18 @@ If the problem persists, contact administrator via /support and provide the erro
         return
 
     # Если проверка прошла успешно, используем инвайт и сохраняем пользователя в БД
-    invite_code = data.get("invite_code")
-    if invite_code:
-        # Используем инвайт (атомарно, с проверкой валидности внутри)
-        if not await use_invite(invite_code, telegram_id):
-            await state.clear()
-            await message.answer(
-                """❌ Registration failed: The invite code could not be used.
-
-Please start registration again with /start using a valid invite code."""
-            )
-            return
+    # Временно отключена проверка инвайта
+    # invite_code = data.get("invite_code")
+    # if invite_code:
+    #     # Используем инвайт (атомарно, с проверкой валидности внутри)
+    #     if not await use_invite(invite_code, telegram_id):
+    #         await state.clear()
+    #         await message.answer(
+    #             """❌ Registration failed: The invite code could not be used.
+    #
+    # Please start registration again with /start using a valid invite code."""
+    #         )
+    #         return
 
     # Сохраняем пользователя в БД
     await save_user(
@@ -294,9 +340,19 @@ Please start registration again with /start using a valid invite code."""
 
     await state.clear()
     await message.answer(
-        """✅ Registration Completed!
+        f"""✅ Registration Completed!
 
 Your data has been encrypted and verified.
+
+📊 <b>Account Information</b>
+
+💰 USDT Balance: {balance:.6f} USDT
+
+📋 Open Orders: {open_orders_count}
+
+📈 Open Positions: {positions_count}
+
+💵 Total Value in Positions: {total_value:.6f} USDT
 
 Use the /make_market command to start a new farm.
 Use the /orders command to manage your orders.

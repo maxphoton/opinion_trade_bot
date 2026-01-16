@@ -19,7 +19,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from client_factory import create_client
 from config import TICK_SIZE
-from database import get_user, save_order
+from database import get_user, get_user_orders, save_order
 from opinion_api_wrapper import get_usdt_balance
 from opinion_clob_sdk import Client
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
@@ -323,6 +323,16 @@ async def cmd_make_market(message: Message, state: FSMContext):
     if not user:
         await message.answer(
             """❌ You are not registered. Use the /start command to register."""
+        )
+        return
+
+    # Проверяем наличие активных ордеров
+    active_orders = await get_user_orders(message.from_user.id, status="pending")
+    if active_orders:
+        await message.answer(
+            """⏹️ You already have an active order.
+
+Currently, you can only have 1 active order at a time. Please wait for updates."""
         )
         return
 
@@ -683,18 +693,18 @@ async def process_amount(message: Message, state: FSMContext):
         # Check balance
         has_balance, current_balance = await check_usdt_balance(client, amount)
 
-        if not has_balance:
-            builder = InlineKeyboardBuilder()
-            builder.button(text="✖️ Cancel", callback_data="cancel")
-            await message.answer(
-                f"""❌ Insufficient USDT balance to place an order for {amount} USDT.
+        #         if not has_balance:
+        #             builder = InlineKeyboardBuilder()
+        #             builder.button(text="✖️ Cancel", callback_data="cancel")
+        #             await message.answer(
+        #                 f"""❌ Insufficient USDT balance to place an order for {amount} USDT.
 
-💰 Available balance: {current_balance:.6f} USDT
+        # 💰 Available balance: {current_balance:.6f} USDT
 
-Enter a different amount:""",
-                reply_markup=builder.as_markup(),
-            )
-            return
+        # Enter a different amount:""",
+        #                 reply_markup=builder.as_markup(),
+        #             )
+        #             return
 
         await state.update_data(amount=amount)
 

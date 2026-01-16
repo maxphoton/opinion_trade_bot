@@ -26,6 +26,7 @@ from client_factory import create_client, setup_proxy
 from config import settings
 from database import get_user, init_database
 from dotenv import load_dotenv
+from expire_orders import expire_old_orders
 from help_text import HELP_TEXT, HELP_TEXT_CN, HELP_TEXT_ENG
 from logger_config import setup_root_logger
 from market_router import market_router
@@ -324,6 +325,24 @@ async def background_sync_task():
         await asyncio.sleep(SYNC_INTERVAL)
 
 
+async def background_expire_orders_task():
+    """Фоновая задача для ежедневной проверки и отмены старых ордеров."""
+    # Ждем 1 час после старта бота перед первой проверкой
+    await asyncio.sleep(3600)
+
+    # Интервал проверки: 24 часа (86400 секунд)
+    EXPIRE_INTERVAL = 86400
+
+    while True:
+        try:
+            await expire_old_orders(bot)
+        except Exception as e:
+            logger.error(f"Error in background expire orders task: {e}")
+
+        # Ждем перед следующей проверкой (24 часа)
+        await asyncio.sleep(EXPIRE_INTERVAL)
+
+
 async def main():
     """Главная функция запуска бота."""
     # Настраиваем прокси для всех API запросов (если указан в настройках)
@@ -355,6 +374,10 @@ async def main():
     # Запускаем фоновую задачу синхронизации ордеров
     asyncio.create_task(background_sync_task())
     logger.info("Background sync task started")
+
+    # Запускаем фоновую задачу проверки старых ордеров
+    asyncio.create_task(background_expire_orders_task())
+    logger.info("Background expire orders task started")
 
     # Отправляем сообщение админу при старте (если указан)
     if settings.admin_telegram_id and settings.admin_telegram_id != 0:
