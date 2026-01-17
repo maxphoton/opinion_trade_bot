@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import base64
 import logging
 from typing import Optional, Tuple
 
@@ -118,47 +117,45 @@ async def check_proxy_health(proxy_str: str, timeout: float = 10.0) -> str:
     username = parsed["username"]
     password = parsed["password"]
 
-    # Формируем URL прокси
-    proxy_url = f"http://{host}:{port}"
+    async def _attempt_check() -> str:
+        """Попытка выполнить проверку прокси один раз."""
+        try:
+            proxy_url_with_auth = f"http://{username}:{password}@{host}:{port}"
 
-    # Формируем заголовки для аутентификации
-    credentials = f"{username}:{password}"
-    encoded_credentials = base64.b64encode(credentials.encode()).decode()
-    proxy_headers = {"Proxy-Authorization": f"Basic {encoded_credentials}"}
-
-    try:
-        # Делаем тестовый HTTP запрос через прокси
-        # Используем публичный API для проверки (например, httpbin.org)
-        # Для Basic Auth в прокси нужно использовать формат http://username:password@host:port
-        proxy_url_with_auth = f"http://{username}:{password}@{host}:{port}"
-
-        async with httpx.AsyncClient(
-            proxy=proxy_url_with_auth,
-            timeout=timeout,
-        ) as client:
-            response = await client.get(
-                "http://httpbin.org/ip",
+            async with httpx.AsyncClient(
+                proxy=proxy_url_with_auth,
                 timeout=timeout,
-            )
+            ) as client:
+                response = await client.get("http://httpbin.org/ip", timeout=timeout)
+                if response.status_code == 200:
+                    logger.info(f"✅ Прокси {host}:{port} работает")
+                    return "working"
 
-            if response.status_code == 200:
-                logger.info(f"✅ Прокси {host}:{port} работает")
-                return "working"
-            else:
                 logger.warning(
                     f"❌ Прокси {host}:{port} вернул статус {response.status_code}"
                 )
                 return "failed"
+        except httpx.TimeoutException:
+            logger.warning(f"⏱️ Таймаут при проверке прокси {host}:{port}")
+            return "failed"
+        except httpx.ProxyError as e:
+            logger.warning(f"❌ Ошибка прокси {host}:{port}: {e}")
+            return "failed"
+        except Exception as e:
+            logger.error(f"❌ Ошибка при проверке прокси {host}:{port}: {e}")
+            return "failed"
 
-    except httpx.TimeoutException:
-        logger.warning(f"⏱️ Таймаут при проверке прокси {host}:{port}")
-        return "failed"
-    except httpx.ProxyError as e:
-        logger.warning(f"❌ Ошибка прокси {host}:{port}: {e}")
-        return "failed"
-    except Exception as e:
-        logger.error(f"❌ Ошибка при проверке прокси {host}:{port}: {e}")
-        return "failed"
+    retry_delays = [3, 5, 10]
+    for attempt in range(len(retry_delays) + 1):
+        status = await _attempt_check()
+        if status == "working":
+            return "working"
+        if attempt >= len(retry_delays):
+            return "failed"
+
+        wait = retry_delays[attempt]
+        logger.info(f"⏳ Повторная проверка прокси {host}:{port} через {wait} сек.")
+        await asyncio.sleep(wait)
 
 
 async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
