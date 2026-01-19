@@ -3,8 +3,8 @@
 """
 
 import logging
-from pathlib import Path
 
+from admin_notifications import get_latest_log_file
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -61,29 +61,24 @@ async def cmd_get_db(message: Message):
         )
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
 
-        # Отправляем файлы логов отдельными файлами
-        logs_dir = Path(__file__).parent.parent / "logs"
-        log_files = [
-            ("bot.log", "📝 Bot logs"),
-            ("sync_orders.log", "🔄 Sync orders logs"),
-        ]
-
-        for log_filename, caption in log_files:
-            log_path = logs_dir / log_filename
-            if log_path.exists():
-                try:
-                    log_content = log_path.read_bytes()
-                    log_file = BufferedInputFile(log_content, filename=log_filename)
-                    await message.answer_document(document=log_file, caption=caption)
-                    logger.info(f"Отправлен файл лога: {log_filename}")
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке файла лога {log_filename}: {e}")
-                    await message.answer(
-                        f"❌ Error sending log file {log_filename}: {e}"
-                    )
-            else:
-                logger.warning(f"Файл лога не найден: {log_path}")
-                await message.answer(f"⚠️ Log file not found: {log_filename}")
+        # Отправляем последний файл лога
+        latest_log = get_latest_log_file()
+        if latest_log:
+            try:
+                log_content = latest_log.read_bytes()
+                log_file = BufferedInputFile(log_content, filename=latest_log.name)
+                await message.answer_document(
+                    document=log_file, caption=f"📝 Latest log ({latest_log.name})"
+                )
+                logger.info(f"Отправлен последний файл лога: {latest_log.name}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке файла лога {latest_log.name}: {e}")
+                await message.answer(
+                    f"❌ Error sending log file {latest_log.name}: {e}"
+                )
+        else:
+            logger.warning("Файлы логов не найдены")
+            await message.answer("⚠️ Log files not found")
 
     except Exception as e:
         logger.error(f"Ошибка экспорта базы данных: {e}")

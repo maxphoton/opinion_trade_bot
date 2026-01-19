@@ -12,6 +12,7 @@ import logging
 
 # Импортируем локальные модули
 from admin import admin_router
+from admin_notifications import AdminErrorAlertHandler, send_admin_notification_with_log
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -314,10 +315,23 @@ async def background_sync_task():
 
     # Интервал синхронизации: 60 секунд (1 минута)
     SYNC_INTERVAL = 60
+    # Таймаут для цикла синхронизации (секунды)
+    SYNC_TIMEOUT = 180
 
     while True:
         try:
-            await async_sync_all_orders(bot)
+            await asyncio.wait_for(async_sync_all_orders(bot), timeout=SYNC_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Sync cycle timeout exceeded ({SYNC_TIMEOUT}s). "
+                "Sending notification to admin."
+            )
+            timeout_message = (
+                "🚨 <b>Sync Cycle Timeout</b>\n\n"
+                f"Order sync exceeded {SYNC_TIMEOUT} seconds.\n"
+                "The task will continue in the next cycle."
+            )
+            await send_admin_notification_with_log(bot, timeout_message)
         except Exception as e:
             logger.error(f"Error in background sync task: {e}")
 
@@ -350,6 +364,13 @@ async def main():
 
     # Инициализируем базу данных
     await init_database()
+
+    # Регистрируем обработчик для отправки уведомлений администратору при ошибках
+    error_alert_handler = AdminErrorAlertHandler(bot)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(error_alert_handler)
+    logging.getLogger("sync_orders").addHandler(error_alert_handler)
+    logger.info("Admin error alert handler registered")
 
     # Регистрируем middleware для антиспама (глобально)
     dp.message.middleware(AntiSpamMiddleware(bot=bot))
