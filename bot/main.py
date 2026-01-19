@@ -29,6 +29,10 @@ from routers.orders_dialog import orders_dialog
 from routers.plug import plug_router
 from routers.start import start_router
 from routers.users import user_router
+from service.admin_notifications import (
+    AdminErrorAlertHandler,
+    send_admin_notification_with_log,
+)
 from service.config import settings
 from service.database import init_database
 from service.logger_config import setup_root_logger
@@ -61,10 +65,26 @@ async def background_sync_task():
 
     # Интервал синхронизации: 60 секунд (1 минута)
     SYNC_INTERVAL = 60
+    # Таймаут для цикла синхронизации: 120 секунд (2 минуты)
+    # Это должно быть больше SYNC_INTERVAL, чтобы дать время на обработку
+    SYNC_TIMEOUT = 180
 
     while True:
         try:
-            await async_sync_all_orders(bot)
+            # Оборачиваем синхронизацию в timeout
+            await asyncio.wait_for(async_sync_all_orders(bot), timeout=SYNC_TIMEOUT)
+        except asyncio.TimeoutError:
+            # Таймаут превышен - отправляем уведомление администратору
+            logger.error(
+                f"Sync cycle timeout exceeded ({SYNC_TIMEOUT}s). "
+                "Sending notification to admin."
+            )
+            timeout_message = (
+                f"⏱️ <b>Sync Cycle Timeout</b>\n\n"
+                f"Синхронизация ордеров превысила таймаут {SYNC_TIMEOUT} секунд.\n"
+                f"Задача будет продолжена в следующем цикле."
+            )
+            await send_admin_notification_with_log(bot, timeout_message)
         except Exception as e:
             logger.error(f"Error in background sync task: {e}")
 
@@ -90,6 +110,13 @@ async def main():
     """Главная функция запуска бота."""
     # Инициализируем базу данных
     await init_database()
+
+    # Регистрируем обработчик для отправки уведомлений администратору при ошибках
+    # Делаем это после инициализации бота, но до запуска основных задач
+    error_alert_handler = AdminErrorAlertHandler(bot)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(error_alert_handler)
+    logger.info("Admin error alert handler registered")
 
     # Регистрируем middleware для антиспама (глобально)
     dp.message.middleware(AntiSpamMiddleware(bot=bot))

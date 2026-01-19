@@ -3,13 +3,13 @@
 """
 
 import logging
-from pathlib import Path
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message
+from service.admin_notifications import get_latest_log_file
 from service.config import settings
 from service.database import (
     delete_user,
@@ -63,26 +63,8 @@ async def cmd_get_db(message: Message):
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных")
 
         # Отправляем последний файл лога (с учетом ротации)
-        logs_dir = Path(__file__).parent.parent / "logs"
-        log_filename = "bot.log"
-
-        # Находим все файлы логов (bot.log, bot.log.1, bot.log.2 и т.д.)
-        log_files = []
-        base_log_path = logs_dir / log_filename
-
-        # Проверяем основной файл
-        if base_log_path.exists():
-            log_files.append(base_log_path)
-
-        # Проверяем ротированные файлы (bot.log.1, bot.log.2, ...)
-        for i in range(1, 11):  # До 10 файлов ротации
-            rotated_path = logs_dir / f"{log_filename}.{i}"
-            if rotated_path.exists():
-                log_files.append(rotated_path)
-
-        if log_files:
-            # Выбираем самый новый файл (по времени модификации)
-            latest_log = max(log_files, key=lambda p: p.stat().st_mtime)
+        latest_log = get_latest_log_file()
+        if latest_log:
             try:
                 log_content = latest_log.read_bytes()
                 log_file = BufferedInputFile(log_content, filename=latest_log.name)
@@ -96,7 +78,7 @@ async def cmd_get_db(message: Message):
                     f"❌ Error sending log file {latest_log.name}: {e}"
                 )
         else:
-            logger.warning(f"Файлы логов не найдены в {logs_dir}")
+            logger.warning("Файлы логов не найдены")
             await message.answer("⚠️ Log files not found in logs directory")
 
     except Exception as e:
