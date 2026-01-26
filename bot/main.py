@@ -171,7 +171,12 @@ async def main():
 
     logger.info("Бот запущен")
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(
+            bot,
+            polling_timeout=60,
+            request_timeout=30,
+            allowed_updates=dp.resolve_used_update_types(),
+        )
     finally:
         # Останавливаем WebSocket менеджер при завершении работы (закомментировано)
         # if websocket_sync:

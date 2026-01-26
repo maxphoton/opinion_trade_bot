@@ -6,9 +6,10 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.types import FSInputFile
 from service.config import settings
 
@@ -19,6 +20,14 @@ LOGS_DIR = Path(__file__).parent.parent / "logs"
 
 # Коoldown для уведомлений об ошибках (в секундах)
 ERROR_ALERT_COOLDOWN = 3  # 3 минут
+
+# Таймауты и повторные попытки для запросов к Telegram API
+ADMIN_NOTIFY_REQUEST_TIMEOUT = 20.0
+ADMIN_LOG_UPLOAD_TIMEOUT = 30.0
+ADMIN_NOTIFY_MAX_RETRIES = 3
+ADMIN_NOTIFY_BACKOFF_BASE_SECONDS = 1.5
+
+T = TypeVar("T")
 
 
 def get_latest_log_file() -> Optional[Path]:
@@ -59,6 +68,39 @@ def get_latest_log_file() -> Optional[Path]:
     return latest_file
 
 
+async def send_with_retry(
+    operation: Callable[[], Awaitable[T]],
+    *,
+    max_retries: int,
+    backoff_base_seconds: float,
+) -> T:
+    """
+    Выполняет асинхронную операцию с повторными попытками и экспоненциальной паузой.
+
+    Args:
+        operation: Асинхронная операция без аргументов
+        max_retries: Максимальное число попыток
+        backoff_base_seconds: Базовый множитель для экспоненциальной паузы
+
+    Returns:
+        Результат выполнения операции
+    """
+    last_error: Optional[Exception] = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await operation()
+        except (TelegramNetworkError, asyncio.TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt >= max_retries:
+                raise
+            delay_seconds = backoff_base_seconds * (2 ** (attempt - 1))
+            await asyncio.sleep(delay_seconds)
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("send_with_retry завершился без результата")
+
+
 async def send_admin_notification_with_log(
     bot: Bot, message: str, log_file: Optional[Path] = None
 ) -> bool:
@@ -83,34 +125,55 @@ async def send_admin_notification_with_log(
             log_file = get_latest_log_file()
 
         # Отправляем сообщение
-        await bot.send_message(
-            chat_id=settings.admin_telegram_id,
-            text=message,
-            parse_mode="HTML",
+        await send_with_retry(
+            lambda: bot.send_message(
+                chat_id=settings.admin_telegram_id,
+                text=message,
+                parse_mode="HTML",
+                request_timeout=ADMIN_NOTIFY_REQUEST_TIMEOUT,
+            ),
+            max_retries=ADMIN_NOTIFY_MAX_RETRIES,
+            backoff_base_seconds=ADMIN_NOTIFY_BACKOFF_BASE_SECONDS,
         )
 
         # Если есть лог-файл, отправляем его как документ
         if log_file and log_file.exists():
             try:
                 document = FSInputFile(log_file)
-                await bot.send_document(
-                    chat_id=settings.admin_telegram_id,
-                    document=document,
-                    caption="📄 Latest log file",
+                await send_with_retry(
+                    lambda: bot.send_document(
+                        chat_id=settings.admin_telegram_id,
+                        document=document,
+                        caption="📄 Latest log file",
+                        request_timeout=ADMIN_LOG_UPLOAD_TIMEOUT,
+                    ),
+                    max_retries=ADMIN_NOTIFY_MAX_RETRIES,
+                    backoff_base_seconds=ADMIN_NOTIFY_BACKOFF_BASE_SECONDS,
                 )
-                logger.info(f"Лог-файл отправлен администратору: {log_file.name}")
+                logger.info("Лог-файл отправлен администратору: %s", log_file.name)
             except Exception as e:
+                error_text = f"⚠️ Не удалось прикрепить лог-файл: {e}"
                 logger.error(f"Ошибка при отправке лог-файла администратору: {e}")
                 # Отправляем текстовое сообщение об ошибке
-                await bot.send_message(
-                    chat_id=settings.admin_telegram_id,
-                    text=f"⚠️ Не удалось прикрепить лог-файл: {e}",
+                await send_with_retry(
+                    lambda: bot.send_message(
+                        chat_id=settings.admin_telegram_id,
+                        text=error_text,
+                        request_timeout=ADMIN_NOTIFY_REQUEST_TIMEOUT,
+                    ),
+                    max_retries=ADMIN_NOTIFY_MAX_RETRIES,
+                    backoff_base_seconds=ADMIN_NOTIFY_BACKOFF_BASE_SECONDS,
                 )
         else:
             logger.warning("Лог-файл не найден для отправки администратору")
-            await bot.send_message(
-                chat_id=settings.admin_telegram_id,
-                text="⚠️ Лог-файл не найден",
+            await send_with_retry(
+                lambda: bot.send_message(
+                    chat_id=settings.admin_telegram_id,
+                    text="⚠️ Лог-файл не найден",
+                    request_timeout=ADMIN_NOTIFY_REQUEST_TIMEOUT,
+                ),
+                max_retries=ADMIN_NOTIFY_MAX_RETRIES,
+                backoff_base_seconds=ADMIN_NOTIFY_BACKOFF_BASE_SECONDS,
             )
 
         return True

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 # Константы для ротации логов
-LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 мегабайт
+LOG_MAX_BYTES = 7 * 1024 * 1024  # 7 мегабайт
 LOG_BACKUP_COUNT = 10  # Хранить последние 10 файлов
 
 
