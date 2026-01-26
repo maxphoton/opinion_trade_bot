@@ -223,6 +223,25 @@ def calculate_target_price(
     return target, is_valid
 
 
+def get_offset_bounds(
+    direction: Optional[str], max_offset_buy: int, max_offset_sell: int
+) -> Tuple[int, int]:
+    """
+    Returns direction-aware min/max offset bounds (in ticks).
+    """
+    if direction == "BUY":
+        min_offset = -max_offset_sell
+        max_offset = max_offset_buy
+    elif direction == "SELL":
+        min_offset = -max_offset_buy
+        max_offset = max_offset_sell
+    else:
+        min_offset = -max(max_offset_buy, max_offset_sell)
+        max_offset = max(max_offset_buy, max_offset_sell)
+
+    return min_offset, max_offset
+
+
 async def check_usdt_balance(
     client: Client, required_amount: float
 ) -> Tuple[bool, float]:
@@ -948,7 +967,8 @@ Enter a different amount:""",
 
 {bids_text}
 {asks_text}
-Set the price offset (in ¢) relative to the best bid ({best_bid:.1f}¢). 
+Set the price offset (in ¢) relative to the current price.
+Use a negative value to move closer to the current price (e.g., <code>-0.8</code>).
 For example <code>0.8</code>:""",
             reply_markup=builder.as_markup(),
         )
@@ -1035,9 +1055,15 @@ async def process_offset_ticks(message: Message, state: FSMContext):
         tick_size = data.get("tick_size", TICK_SIZE)
         max_offset_buy = data.get("max_offset_buy", 0)
         max_offset_sell = data.get("max_offset_sell", 0)
+        direction = data.get("direction")
 
         if not best_bid:
             await message.answer("❌ Error: best bid not found")
+            await state.clear()
+            return
+
+        if not direction:
+            await message.answer("❌ Error: Direction not found. Please start again.")
             await state.clear()
             return
 
@@ -1048,56 +1074,31 @@ async def process_offset_ticks(message: Message, state: FSMContext):
         builder = InlineKeyboardBuilder()
         builder.button(text="✖️ Cancel", callback_data="cancel")
 
-        min_offset = 0
+        min_offset, max_offset = get_offset_bounds(
+            direction, max_offset_buy, max_offset_sell
+        )
+        min_offset_cents = min_offset * tick_size * 100
+        max_offset_cents = max_offset * tick_size * 100
+
         if offset_ticks < min_offset:
             await message.answer(
-                f"❌ Offset must be at least {min_offset} cents.\n"
-                f"Enter a value from {min_offset} to {max(max_offset_buy, max_offset_sell) * tick_size * 100:.1f} cents:",
+                f"❌ Offset is too small!\n"
+                f"Enter a value from {min_offset_cents:.1f} to {max_offset_cents:.1f} cents:",
                 reply_markup=builder.as_markup(),
             )
             return
 
-        # Check maximum value (take max of BUY and SELL)
-        max_offset = max(max_offset_buy, max_offset_sell)
-        max_offset_cents = max_offset * tick_size * 100
-
         if offset_ticks > max_offset:
             await message.answer(
-                f"❌ Offset is too large!\n\n"
-                f"• Maximum for BUY: {max_offset_buy * tick_size * 100:.1f} cents\n"
-                f"• Maximum for SELL: {max_offset_sell * tick_size * 100:.1f} cents\n\n"
-                f"Enter a value from {min_offset} to {max_offset_cents:.1f} cents:",
+                f"❌ Offset is too large!\n"
+                f"Enter a value from {min_offset_cents:.1f} to {max_offset_cents:.1f} cents:",
                 reply_markup=builder.as_markup(),
             )
             return
 
         await state.update_data(offset_ticks=offset_ticks)
 
-        # Get direction from state (already selected earlier)
-        direction = data.get("direction")
-        if not direction:
-            await message.answer("❌ Error: Direction not found. Please start again.")
-            await state.clear()
-            return
-
-        # Validate offset for selected direction
-        if direction == "BUY" and offset_ticks > max_offset_buy:
-            await message.answer(
-                f"❌ Offset is too large for BUY!\n\n"
-                f"• Maximum for BUY: {max_offset_buy * tick_size * 100:.1f} cents\n\n"
-                f"Enter a value from {min_offset} to {max_offset_buy * tick_size * 100:.1f} cents:",
-                reply_markup=builder.as_markup(),
-            )
-            return
-
-        if direction == "SELL" and offset_ticks > max_offset_sell:
-            await message.answer(
-                f"❌ Offset is too large for SELL!\n\n"
-                f"• Maximum for SELL: {max_offset_sell * tick_size * 100:.1f} cents\n\n"
-                f"Enter a value from {min_offset} to {max_offset_sell * tick_size * 100:.1f} cents:",
-                reply_markup=builder.as_markup(),
-            )
-            return
+        # Validate offset for selected direction (direction-aware bounds already applied)
 
         # Calculate target price based on direction and offset
         target_price, is_valid = calculate_target_price(
@@ -1157,12 +1158,18 @@ Enter the threshold:""",
         tick_size = data.get("tick_size", TICK_SIZE)
         max_offset_buy = data.get("max_offset_buy", 0)
         max_offset_sell = data.get("max_offset_sell", 0)
-        max_offset = max(max_offset_buy, max_offset_sell)
+        direction = data.get("direction")
+
+        min_offset, max_offset = get_offset_bounds(
+            direction, max_offset_buy, max_offset_sell
+        )
+        min_offset_cents = min_offset * tick_size * 100
         max_offset_cents = max_offset * tick_size * 100
+
         builder = InlineKeyboardBuilder()
         builder.button(text="✖️ Cancel", callback_data="cancel")
         await message.answer(
-            f"❌ Invalid format. Enter a number from 0 to {max_offset_cents:.1f} cents:",
+            f"❌ Invalid format. Enter a number from {min_offset_cents:.1f} to {max_offset_cents:.1f} cents:",
             reply_markup=builder.as_markup(),
         )
 
