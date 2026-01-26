@@ -102,7 +102,10 @@ async def send_with_retry(
 
 
 async def send_admin_notification_with_log(
-    bot: Bot, message: str, log_file: Optional[Path] = None
+    bot: Bot,
+    message: str,
+    log_file: Optional[Path] = None,
+    send_log_file: bool = True,
 ) -> bool:
     """
     Отправляет уведомление администратору с прикреплением лог-файла.
@@ -111,6 +114,7 @@ async def send_admin_notification_with_log(
         bot: Экземпляр aiogram Bot
         message: Текст сообщения для администратора
         log_file: Путь к лог-файлу (если None, будет найден автоматически)
+        send_log_file: Отправлять ли лог-файл вместе с уведомлением
 
     Returns:
         True если уведомление отправлено успешно, False в случае ошибки
@@ -137,7 +141,7 @@ async def send_admin_notification_with_log(
         )
 
         # Если есть лог-файл, отправляем его как документ
-        if log_file and log_file.exists():
+        if send_log_file and log_file and log_file.exists():
             try:
                 document = FSInputFile(log_file)
                 await send_with_retry(
@@ -164,7 +168,7 @@ async def send_admin_notification_with_log(
                     max_retries=ADMIN_NOTIFY_MAX_RETRIES,
                     backoff_base_seconds=ADMIN_NOTIFY_BACKOFF_BASE_SECONDS,
                 )
-        else:
+        elif send_log_file:
             logger.warning("Лог-файл не найден для отправки администратору")
             await send_with_retry(
                 lambda: bot.send_message(

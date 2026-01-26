@@ -84,7 +84,9 @@ async def background_sync_task():
                 f"Синхронизация ордеров превысила таймаут {SYNC_TIMEOUT} секунд.\n"
                 f"Задача будет продолжена в следующем цикле."
             )
-            await send_admin_notification_with_log(bot, timeout_message)
+            await send_admin_notification_with_log(
+                bot, timeout_message, send_log_file=False
+            )
         except Exception as e:
             logger.error(f"Error in background sync task: {e}")
 
