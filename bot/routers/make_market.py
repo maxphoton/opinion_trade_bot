@@ -1252,17 +1252,18 @@ async def process_reposition_threshold(message: Message, state: FSMContext):
 
         # Convert offset from ticks to cents
         offset_cents = offset_ticks * tick_size * 100
+        offset_cents_abs = abs(offset_cents)
 
-        # Validation: threshold must be less than offset
-        if threshold_cents >= offset_cents:
+        # Validation: threshold must be less than offset magnitude
+        if threshold_cents >= offset_cents_abs:
             builder = InlineKeyboardBuilder()
             builder.button(text="✖️ Cancel", callback_data="cancel")
-            offset_cents_formatted = f"{offset_cents:.2f}".rstrip("0").rstrip(".")
+            offset_cents_formatted = f"{offset_cents_abs:.2f}".rstrip("0").rstrip(".")
             threshold_cents_formatted = f"{threshold_cents:.2f}".rstrip("0").rstrip(".")
             await message.answer(
                 f"""❌ Threshold ({threshold_cents_formatted}¢) must be less than offset ({offset_cents_formatted}¢).
 
-If threshold is greater than or equal to offset, the order will never be repositioned.
+If threshold is greater than or equal to the offset, the order will never be repositioned.
 
 Enter a threshold less than {offset_cents_formatted}¢:""",
                 reply_markup=builder.as_markup(),
