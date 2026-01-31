@@ -52,7 +52,8 @@ Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator.
 
-🚀 Subscribe for best strategies, updates and VIP access @cmchn_public"""
+🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
+📚 Docs: https://bidask-bot.gitbook.io/docs/"""
         )
         return
 
@@ -60,6 +61,7 @@ Use the /support command to contact administrator.
     await message.answer(
         """ Welcome!
 🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
+📚 Docs: https://bidask-bot.gitbook.io/docs/
         
 🔐 Step 1: Bot Registration
 
@@ -131,5 +133,7 @@ After adding an account, you can:
 • Use /floating_order to place orders
 • Use /orders to manage your orders
 • Use /check_profile to view profile statistics
-• Use /profile_list to view all your accounts"""
+• Use /profile_list to view all your accounts
+
+📚 Docs: https://bidask-bot.gitbook.io/docs/"""
     )

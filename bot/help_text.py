@@ -81,7 +81,9 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 
 <b>💬 Поддержка:</b>
 По всем вопросам обращайтесь через команду <b>/support</b>
-Вы можете отправить текстовое сообщение или фото с подписью."""
+Вы можете отправить текстовое сообщение или фото с подписью.
+
+<b>📚 Документация:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""
 
 HELP_TEXT_ENG = """📖 <b>Bot Usage Instructions</b>
 
@@ -162,7 +164,9 @@ The bot sends notifications about:
 
 <b>💬 Support:</b>
 For all questions, contact us via the <b>/support</b> command
-You can send a text message or a photo with a caption."""
+You can send a text message or a photo with a caption.
+
+<b>📚 Docs:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""
 
 HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 
@@ -243,4 +247,6 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 
 <b>💬 支持:</b>
 如有任何问题，请通过 <b>/support</b> 命令联系我们
-您可以发送文本消息或带说明的照片。"""
+您可以发送文本消息或带说明的照片。
+
+<b>📚 文档:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""

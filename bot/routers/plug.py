@@ -24,5 +24,6 @@ Use the /orders command to manage your orders.
 Use the /check_profile command to view profile statistics.
 Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
-Use the /support command to contact administrator."""
+Use the /support command to contact administrator.
+Docs: https://bidask-bot.gitbook.io/docs/"""
     )
