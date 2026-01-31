@@ -7,10 +7,10 @@ import logging
 from typing import Optional
 
 from opinion_api.api.prediction_market_api import PredictionMarketApi
-from service.config import settings
 from opinion_api.api.user_api import UserApi
 from opinion_api.api_client import ApiClient
 from opinion_clob_sdk import Client
+from service.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -92,25 +92,27 @@ def create_client(account_data: dict) -> Client:
         enable_trading_check_interval=3600,  # Check trading every hour
     )
 
-    # Устанавливаем прокси в конфигурацию SDK
-    proxy_str = account_data["proxy_str"]
-    proxy_config = parse_proxy(proxy_str)
-    if not proxy_config:
-        raise ValueError(f"Не удалось распарсить прокси: {proxy_str}")
+    use_proxy = False
+    if use_proxy:
+        # Устанавливаем прокси в конфигурацию SDK
+        proxy_str = account_data["proxy_str"]
+        proxy_config = parse_proxy(proxy_str)
+        if not proxy_config:
+            raise ValueError(f"Не удалось распарсить прокси: {proxy_str}")
 
-    # Устанавливаем прокси URL БЕЗ аутентификации
-    client.conf.proxy = proxy_config["proxy_url"]
-    # Устанавливаем заголовки для аутентификации прокси
-    client.conf.proxy_headers = proxy_config["proxy_headers"]
+        # Устанавливаем прокси URL БЕЗ аутентификации
+        client.conf.proxy = proxy_config["proxy_url"]
+        # Устанавливаем заголовки для аутентификации прокси
+        client.conf.proxy_headers = proxy_config["proxy_headers"]
 
-    # Пересоздаем api_client с новой конфигурацией (с прокси)
+        # Логируем успешную установку прокси в SDK (без пароля)
+        proxy_info = proxy_config["proxy_url"].replace("http://", "")
+        logger.info(f"✅ Прокси установлен в конфигурацию SDK: {proxy_info}")
+
+    # Пересоздаем api_client с новой конфигурацией
     # Это необходимо, так как RESTClientObject создается при инициализации ApiClient
     client.api_client = ApiClient(client.conf)
     client.market_api = PredictionMarketApi(client.api_client)
     client.user_api = UserApi(client.api_client)
-
-    # Логируем успешную установку прокси в SDK (без пароля)
-    proxy_info = proxy_config["proxy_url"].replace("http://", "")
-    logger.info(f"✅ Прокси установлен в конфигурацию SDK: {proxy_info}")
 
     return client

@@ -150,8 +150,8 @@ async def main():
     logger.info("Background sync task started")
 
     # Запускаем фоновую задачу проверки прокси
-    asyncio.create_task(background_proxy_check_task())
-    logger.info("Background proxy check task started")
+    # asyncio.create_task(background_proxy_check_task())
+    # logger.info("Background proxy check task started")
 
     # Запускаем WebSocket менеджер синхронизации ордеров (закомментировано)
     # websocket_sync = WebSocketOrderSync(bot)

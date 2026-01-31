@@ -159,26 +159,28 @@ async def show_account_info(message: Message, account_id: int):
 
         # Информация о прокси - проверяем реально
         proxy_info = ""
-        if account.get("proxy_str"):
-            proxy_str = account["proxy_str"]
-            proxy_parts = proxy_str.split(":")
-            proxy_info = f"\n\n🔐 Proxy: {proxy_parts[0]}:{proxy_parts[1]}"
+        use_proxy = False
+        if use_proxy:
+            if account.get("proxy_str"):
+                proxy_str = account["proxy_str"]
+                proxy_parts = proxy_str.split(":")
+                proxy_info = f"\n\n🔐 Proxy: {proxy_parts[0]}:{proxy_parts[1]}"
 
-            # Выполняем реальную проверку прокси
-            logger.info(f"Проверка прокси для аккаунта {account_id}")
-            proxy_status = await check_proxy_health(proxy_str)
+                # Выполняем реальную проверку прокси
+                logger.info(f"Проверка прокси для аккаунта {account_id}")
+                proxy_status = await check_proxy_health(proxy_str)
 
-            # Обновляем статус в БД с текущим временем
-            current_time = datetime.now().isoformat()
-            await update_proxy_status(account_id, proxy_status, current_time)
+                # Обновляем статус в БД с текущим временем
+                current_time = datetime.now().isoformat()
+                await update_proxy_status(account_id, proxy_status, current_time)
 
-            status_emoji = {"working": "✅", "failed": "❌", "unknown": "❓"}.get(
-                proxy_status, "❓"
-            )
-            proxy_info += f" {status_emoji} ({proxy_status})"
-            proxy_info += f"\n🕒 Last check: {current_time[:16]}"
-        else:
-            proxy_info = "\n\n🔐 Proxy: Not configured"
+                status_emoji = {"working": "✅", "failed": "❌", "unknown": "❓"}.get(
+                    proxy_status, "❓"
+                )
+                proxy_info += f" {status_emoji} ({proxy_status})"
+                proxy_info += f"\n🕒 Last check: {current_time[:16]}"
+            else:
+                proxy_info = "\n\n🔐 Proxy: Not configured"
 
         wallet = account["wallet_address"]
 

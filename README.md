@@ -7,9 +7,9 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 ### 🔐 Secure Registration with Invite System
 - **Two-Step Registration**: 
   - Step 1: `/start` command - register with invite code (10-character alphanumeric)
-  - Step 2: `/add_account` command - add Opinion account (wallet, private key, API key, proxy)
+  - Step 2: `/add_account` command - add Opinion account (wallet, private key, API key)
 - **Multiple Accounts Support**: Each Telegram user can add multiple Opinion accounts
-- **Encrypted Storage**: All sensitive data (wallet address, private key, API key, proxy) is encrypted using AES-GCM encryption
+- **Encrypted Storage**: All sensitive data (wallet address, private key, API key) is encrypted using AES-GCM encryption
 - **Async SQLite Database**: User credentials are stored locally in an encrypted SQLite database using `aiosqlite` for non-blocking operations
 - **Zero Trust**: Your private keys never leave your server in unencrypted form
 - **Atomic Invite Usage**: Invites are used atomically at the end of registration to prevent conflicts
@@ -18,8 +18,6 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
   - Input trimming (removes leading/trailing whitespace)
   - Important notes during account addition about matching wallet, private key, and API key
 - **Connection Testing**: API connection is tested when adding account using `get_my_orders` before saving account data
-- **Proxy Support**: Each account must have its own proxy (format: `ip:port:username:password`)
-- **Proxy Health Checking**: Automatic background task checks proxy health every 10 minutes
 - **Error Handling**: User-friendly error messages with error codes and timestamps for support reference
 
 ### 🎫 Invite Management (Admin Only)
@@ -30,7 +28,7 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Unique Codes**: 10-character alphanumeric codes with uniqueness validation
 
 ### 👤 Account Management
-- **Add Account**: `/add_account` command to add a new Opinion account (wallet, private key, API key, proxy)
+- **Add Account**: `/add_account` command to add a new Opinion account (wallet, private key, API key)
 - **List Accounts**: `/list_accounts` command to view all your Opinion accounts
 - **Remove Account**: `/remove_account` command to delete an Opinion account
 - **Check Account**: `/check_account` command to view account statistics (balance, orders, positions)
@@ -103,7 +101,6 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Detailed Logging**: Comprehensive logging with user IDs, account IDs, market IDs, and execution times
 - **Performance Monitoring**: Logs start time, end time, and duration for each account's processing
 - **Error Tracking**: Full traceback logging for debugging
-- **Proxy Status Monitoring**: Automatic proxy health checks with status updates in database
 
 ### 💬 Support System
 - **User Support**: Command `/support` allows users to contact the administrator
@@ -157,7 +154,6 @@ BOT_TOKEN=your_telegram_bot_token
 MASTER_KEY=your_32_byte_hex_encryption_key
 RPC_URL=your_bnb_chain_rpc_url
 ADMIN_TELEGRAM_ID=your_telegram_user_id
-PROXY=host:port:username:password  # Optional (global proxy for SDK initialization)
 ```
 
 4. Generate a master key for encryption:
@@ -194,14 +190,10 @@ docker-compose up -d
    - ⚠️ **Important**: Must correspond to the wallet address from step 2
 4. Enter your Opinion Labs API key
    - ⚠️ **Important**: Must be the API key obtained for the wallet from step 2
-5. Enter your proxy (required, format: `ip:port:username:password`)
-   - Proxy is validated for format and health before saving
-   - Proxy must be working for account to be added
 
 All data is encrypted and stored securely. The bot validates:
 - Uniqueness of wallet address, private key, and API key per account
 - API connection when adding account (using `get_my_orders`)
-- Proxy format and health (proxy must be working)
 - If connection test fails, account addition is aborted
 
 The invite code is validated and used atomically at the end of registration only if all checks pass.
@@ -321,7 +313,6 @@ The bot uses a modular router-based architecture:
   - `config.py` - Configuration management
   - `database.py` - Database operations
   - `aes.py` - Encryption utilities
-  - `proxy_checker.py` - Proxy health checking
 - **Opinion Integration**: Opinion.trade integration in `opinion/` directory
   - `client_factory.py` - SDK client creation
   - `opinion_api_wrapper.py` - API wrapper functions
@@ -330,7 +321,6 @@ The bot uses a modular router-based architecture:
 - **Async Database**: All database operations use `aiosqlite` for non-blocking I/O
 - **Background Tasks**: 
   - Order synchronization runs every 60 seconds (REST API polling)
-  - Proxy health checking runs every 10 minutes
   - WebSocket synchronization (planned) will provide real-time updates instead of periodic polling
 - **Dialogs**: Complex multi-step interactions use `aiogram-dialog` for better UX
 - **Middleware**: 
@@ -355,7 +345,6 @@ The bot supports the following environment variables:
 - `MASTER_KEY`: 32-byte hex key for encryption (required)
 - `RPC_URL`: BNB Chain RPC endpoint (required)
 - `ADMIN_TELEGRAM_ID`: Telegram user ID for admin commands (required for invite management)
-- `PROXY`: Global proxy configuration in format `host:port:username:password` (optional, for SDK initialization)
 - `WEBSOCKET_API_KEY`: Opinion Labs API key for WebSocket connections (optional, for future WebSocket synchronization feature)
 
 **Note**: Each Opinion account must have its own proxy configured via `/add_account`. Account-specific proxy is required and takes precedence over the global proxy setting.
@@ -389,7 +378,6 @@ The bot currently synchronizes your orders every 60 seconds using REST API polli
 1. **Order Retrieval**: Retrieves all pending orders with account information from the database
 2. **Account Grouping**: Groups orders by account_id for efficient processing
 3. **Account Processing**: For each account:
-   - **Proxy Check**: Skips accounts with `failed` proxy status
    - **Client Creation**: Creates Opinion SDK client for the account
    - **Status Check**: For each pending order, checks status via API
      - If order is finished: updates database to 'finished', sends notification with order details (price, market link)
@@ -414,7 +402,6 @@ The bot currently synchronizes your orders every 60 seconds using REST API polli
 - **Safety**: Validates all operations via API response codes (errno == 0)
 - **User Awareness**: Detailed notifications for all important events
 - **Performance**: Logs execution time for each account's processing
-- **Proxy Support**: Automatically skips accounts with failed proxies
 - **Account Isolation**: Each account is processed independently with its own API client
 
 ### Planned: WebSocket-Based Real-Time Synchronization
@@ -453,7 +440,6 @@ The bot will soon transition to WebSocket-based synchronization for real-time or
 - Background tasks run independently without blocking the main event loop:
   - Order synchronization: runs every 60 seconds (REST API polling, current implementation)
   - WebSocket synchronization: real-time updates via WebSocket subscriptions (planned)
-  - Proxy health checking: runs every 10 minutes
 - Opinion API wrapper provides async interface for synchronous SDK
 - All routers and handlers are fully async
 

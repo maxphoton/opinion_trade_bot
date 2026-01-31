@@ -205,19 +205,17 @@ Please enter a different API key:"""
     except Exception:
         pass
 
-    # Create keyboard with "Cancel" button
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✖️ Cancel", callback_data="cancel_add_account")
+    # API key is the last step now
+    await message.answer("✅ API key saved. Adding account...")
 
-    await message.answer(
-        """✅ API key saved.
-
-Please enter proxy in format ip:port:login:password:
-
-Example: 91.216.126.156:8000:h28djN:3sndjj8u""",
-        reply_markup=builder.as_markup(),
+    data = await state.get_data()
+    await save_and_notify_account(
+        message=message,
+        state=state,
+        data=data,
+        proxy_str="",
+        proxy_status="unknown",
     )
-    await state.set_state(AddAccountStates.waiting_proxy)
 
 
 @account_router.message(AddAccountStates.waiting_proxy)
@@ -319,13 +317,17 @@ async def save_and_notify_account(
         await state.clear()
 
         # Формируем информацию о прокси
-        proxy_parts = proxy_str.split(":")
-        proxy_host_port = f"{proxy_parts[0]}:{proxy_parts[1]}"
-        # Определяем эмодзи и текст статуса
-        status_emoji = {"working": "✅", "failed": "❌", "unknown": "❓"}.get(
-            proxy_status, "❓"
-        )
-        proxy_info = f"\n\n🔐 Proxy: {proxy_host_port} {status_emoji} ({proxy_status})"
+        proxy_info = ""
+        if proxy_str:
+            proxy_parts = proxy_str.split(":")
+            proxy_host_port = f"{proxy_parts[0]}:{proxy_parts[1]}"
+            # Определяем эмодзи и текст статуса
+            status_emoji = {"working": "✅", "failed": "❌", "unknown": "❓"}.get(
+                proxy_status, "❓"
+            )
+            proxy_info = (
+                f"\n\n🔐 Proxy: {proxy_host_port} {status_emoji} ({proxy_status})"
+            )
 
         await message.answer(
             f"""✅ <b>Account added successfully!</b>
