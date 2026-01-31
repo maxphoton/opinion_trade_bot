@@ -182,12 +182,16 @@ To exit cancel mode, press the Cancel Order button again."""
 async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManager):
     """Обработчик кнопки Exit - отправляет сообщение и закрывает диалог."""
     await callback.message.answer(
-        """Use the /floating_order command to start a new farm.
-Use the /orders command to manage your orders.
-Use the /check_profile command to view profile statistics.
-Use the /profile_list command to view all your accounts.
-Use the /help command to view instructions.
-Use the /support command to contact administrator."""
+        """Use the /floating_order to place floating order.
+Use the /market to place a market order.
+Use the /limit to place a limit order.
+Use the /limit_first command for keeps your limit orders always first in the order book.
+Use the /orders to manage your orders.
+Use the /check_profile to view profile statistics.
+Use the /profile_list to view all your profiles.
+Use the /help to view instructions.
+Use the /support to contact administrator.
+Docs: https://bidask-bot.gitbook.io/docs/"""
     )
     await manager.done()
     await callback.answer()

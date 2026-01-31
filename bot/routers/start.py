@@ -45,12 +45,15 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(
             """✅ You are already registered!
 
-Use the /floating_order command to place an order.
-Use the /orders command to manage your orders.
-Use the /check_profile command to view profile statistics.
-Use the /profile_list command to view all your accounts.
-Use the /help command to view instructions.
-Use the /support command to contact administrator.
+Use the /floating_order to place floating order.
+Use the /market to place a market order.
+Use the /limit to place a limit order.
+Use the /limit_first command for keeps your limit orders always first in the order book.
+Use the /orders to manage your orders.
+Use the /check_profile to view profile statistics.
+Use the /profile_list to view all your profiles.
+Use the /help to view instructions.
+Use the /support to contact administrator.
 
 🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
 📚 Docs: https://bidask-bot.gitbook.io/docs/"""
@@ -127,13 +130,18 @@ Please start registration again with /start using a valid invite code."""
 
 Now you need to add your Opinion profile.
 
-Step 2: Use the /add_profile command to add your first Opinion profile with wallet address, private key, and API key.
+Step 2: Use the /add_profile to add your first Opinion profile with wallet address, private key, and API key.
 
 After adding an account, you can:
-• Use /floating_order to place orders
-• Use /orders to manage your orders
-• Use /check_profile to view profile statistics
-• Use /profile_list to view all your accounts
+• Use /floating_order to place floating order.
+• Use /market to place a market order.
+• Use /limit to place a limit order.
+• Use /limit_first command for keeps your limit orders always first in the order book.
+• Use /orders to manage your orders.
+• Use /check_profile to view profile statistics.
+• Use /profile_list to view all your profiles.
+• Use /help to view instructions.
+• Use /support to contact administrator.
 
 📚 Docs: https://bidask-bot.gitbook.io/docs/"""
     )

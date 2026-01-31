@@ -59,7 +59,7 @@ async def cmd_add_account(message: Message, state: FSMContext):
     user = await get_user(telegram_id)
     if not user:
         await message.answer(
-            """❌ You are not registered. Use the /start command to register first."""
+            """❌ You are not registered. Use the /start to register first."""
         )
         return
 
@@ -360,7 +360,7 @@ async def cmd_list_accounts(message: Message):
     user = await get_user(telegram_id)
     if not user:
         await message.answer(
-            """❌ You are not registered. Use the /start command to register first."""
+            """❌ You are not registered. Use the /start to register first."""
         )
         return
 
@@ -413,7 +413,7 @@ async def cmd_remove_account(message: Message):
     user = await get_user(telegram_id)
     if not user:
         await message.answer(
-            """❌ You are not registered. Use the /start command to register first."""
+            """❌ You are not registered. Use the /start to register first."""
         )
         return
 

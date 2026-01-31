@@ -28,10 +28,10 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Unique Codes**: 10-character alphanumeric codes with uniqueness validation
 
 ### 👤 Account Management
-- **Add Account**: `/add_profile` command to add a new Opinion profile (wallet, private key, API key)
-- **List Accounts**: `/profile_list` command to view all your Opinion profiles
-- **Remove Account**: `/remove_profile` command to delete an Opinion profile
-- **Check Account**: `/check_profile` command to view profile statistics (balance, orders, positions)
+- **Add Account**: `/add_profile` to add a new Opinion profile (wallet, private key, API key)
+- **List Accounts**: `/profile_list` to view all your Opinion profiles
+- **Remove Account**: `/remove_profile` to delete an Opinion profile
+- **Check Account**: `/check_profile` to view profile statistics (balance, orders, positions)
 - **Multiple Accounts**: Support for multiple Opinion profiles per Telegram user
 - **Account Selection**: When placing orders, you can select which account to use
 
@@ -183,7 +183,7 @@ docker-compose up -d
 3. You're now registered in the bot system
 
 **Step 2: Add Opinion profile**
-1. Use `/add_profile` command to add your Opinion profile
+1. Use `/add_profile` to add your Opinion profile
 2. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
    - ⚠️ **Important**: Must be the wallet address for which the API key was obtained
 3. Enter your private key

@@ -16,14 +16,14 @@ async def handle_unknown_message(message: Message):
     Responds with a standard instruction message.
     """
     await message.answer(
-        """Use the /floating_order command to start a new farm.
-Use the /market command to place a market order.
-Use the /limit command to place a limit order.
-Use the /limit_first command for a fixed offset limit order.
-Use the /orders command to manage your orders.
-Use the /check_profile command to view profile statistics.
-Use the /profile_list command to view all your accounts.
-Use the /help command to view instructions.
-Use the /support command to contact administrator.
+        """Use the /floating_order to place floating order.
+Use the /market to place a market order.
+Use the /limit to place a limit order.
+Use the /limit_first command for keeps your limit orders always first in the order book.
+Use the /orders to manage your orders.
+Use the /check_profile to view profile statistics.
+Use the /profile_list to view all your profiles.
+Use the /help to view instructions.
+Use the /support to contact administrator.
 Docs: https://bidask-bot.gitbook.io/docs/"""
     )
