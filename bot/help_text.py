@@ -32,7 +32,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 
 <b>📊 Размещение ордера (/floating_order):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
-2. Введите ссылку на маркет Opinion.trade
+2. Введите ссылку на маркет <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a>
 3. Если маркет категориальный — выберите подмаркет
 4. Просмотрите информацию о маркете (спред, ликвидность, лучшие цены)
 5. Введите сумму в USDT (например: 10)
@@ -115,7 +115,7 @@ The bot automatically maintains limit orders, preventing them from being execute
 
 <b>📊 Placing an Order (/floating_order):</b>
 1. <b>Select Profile</b> — if you have multiple profiles
-2. Enter the Opinion.trade market link
+2. Enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link
 3. If the market is categorical — select a submarket
 4. Review market information (spread, liquidity, best prices)
 5. Enter the amount in USDT (e.g., 10)
@@ -198,7 +198,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 
 <b>📊 下订单 (/floating_order):</b>
 1. <b>选择账户</b> — 如果您有多个账户
-2. 输入Opinion.trade市场链接
+2. 输入 <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> 市场链接
 3. 如果市场是分类市场 — 选择子市场
 4. 查看市场信息（价差、流动性、最佳价格）
 5. 输入USDT金额（例如：10）

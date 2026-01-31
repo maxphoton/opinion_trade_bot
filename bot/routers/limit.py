@@ -132,7 +132,7 @@ Use /add_profile to add your first Opinion profile."""
         await message.answer(
             """📊 Place a Limit Order
 
-Please enter the Opinion.trade market link:""",
+Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
             reply_markup=builder.as_markup(),
         )
         await state.set_state(LimitOrderStates.waiting_url)
@@ -176,7 +176,7 @@ async def process_account_selection(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         """📊 Place a Limit Order
 
-Please enter the Opinion.trade market link:""",
+Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(LimitOrderStates.waiting_url)
