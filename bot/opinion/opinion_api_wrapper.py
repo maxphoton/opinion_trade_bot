@@ -68,8 +68,14 @@
 import asyncio
 import logging
 import traceback
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
+from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
+from opinion_clob_sdk.chain.py_order_utils.model.order_type import (
+    LIMIT_ORDER,
+    MARKET_ORDER,
+)
 from service.config import USDT_CONTRACT_ADDRESS
 
 logger = logging.getLogger(__name__)
@@ -84,6 +90,309 @@ ORDER_STATUS_FINISHED = (
 ORDER_STATUS_CANCELED = (
     "3"  # Отмененный ордер (status_enum='Canceled', соответствует 'canceled')
 )
+
+
+def parse_market_url(url: str) -> Tuple[Optional[int], Optional[str]]:
+    """Parses Opinion.trade URL and extracts marketId and market type."""
+    try:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        market_id = None
+        market_type = None
+
+        if "topicId" in params:
+            market_id = int(params["topicId"][0])
+
+        if "type" in params:
+            market_type = params["type"][0]
+
+        return market_id, market_type
+    except (ValueError, AttributeError):
+        return None, None
+
+
+async def get_market_info(client, market_id: int, is_categorical: bool = False):
+    """Gets market information."""
+    try:
+        if is_categorical:
+            response = client.get_categorical_market(market_id=market_id)
+        else:
+            response = client.get_market(market_id=market_id, use_cache=True)
+
+        if response.errno == 0:
+            return response.result.data
+
+        logger.error(
+            f"Error getting market: {response.errmsg} (code: {response.errno})"
+        )
+        return None
+    except Exception as e:
+        logger.error(f"Error getting market: {e}")
+        return None
+
+
+def get_categorical_market_submarkets(market) -> list:
+    """Extracts list of submarkets from categorical market."""
+    if hasattr(market, "child_markets") and market.child_markets:
+        return market.child_markets
+    return []
+
+
+async def get_orderbooks(client, yes_token_id: str, no_token_id: str):
+    """Gets order books for YES and NO tokens."""
+    yes_orderbook = None
+    no_orderbook = None
+
+    try:
+        response = client.get_orderbook(token_id=yes_token_id)
+        if response.errno == 0:
+            yes_orderbook = (
+                response.result
+                if hasattr(response.result, "bids")
+                else getattr(response.result, "data", response.result)
+            )
+    except Exception as e:
+        logger.error(f"Error getting orderbook for YES: {e}")
+
+    try:
+        response = client.get_orderbook(token_id=no_token_id)
+        if response.errno == 0:
+            no_orderbook = (
+                response.result
+                if hasattr(response.result, "bids")
+                else getattr(response.result, "data", response.result)
+            )
+    except Exception as e:
+        logger.error(f"Error getting orderbook for NO: {e}")
+
+    return yes_orderbook, no_orderbook
+
+
+def calculate_spread_and_liquidity(orderbook, token_name: str) -> dict:
+    """Calculates spread and liquidity for a token."""
+    if not orderbook:
+        return {
+            "best_bid": None,
+            "best_ask": None,
+            "spread": None,
+            "spread_pct": None,
+            "mid_price": None,
+            "bid_liquidity": 0,
+            "ask_liquidity": 0,
+            "total_liquidity": 0,
+        }
+
+    bids = orderbook.bids if hasattr(orderbook, "bids") else []
+    asks = orderbook.asks if hasattr(orderbook, "asks") else []
+
+    best_bid = None
+    if bids and len(bids) > 0:
+        bid_prices = [float(bid.price) for bid in bids if hasattr(bid, "price")]
+        if bid_prices:
+            best_bid = max(bid_prices)
+
+    best_ask = None
+    if asks and len(asks) > 0:
+        ask_prices = [float(ask.price) for ask in asks if hasattr(ask, "price")]
+        if ask_prices:
+            best_ask = min(ask_prices)
+
+    spread = None
+    spread_pct = None
+    mid_price = None
+
+    if best_bid and best_ask:
+        spread = best_ask - best_bid
+        mid_price = (best_bid + best_ask) / 2
+        spread_pct = (spread / mid_price * 100) if mid_price > 0 else 0
+
+    bid_liquidity = sum(float(bid.size) for bid in bids[:5]) if bids else 0
+    ask_liquidity = sum(float(ask.size) for ask in asks[:5]) if asks else 0
+    total_liquidity = bid_liquidity + ask_liquidity
+
+    return {
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "spread": spread,
+        "spread_pct": spread_pct,
+        "mid_price": mid_price,
+        "bid_liquidity": bid_liquidity,
+        "ask_liquidity": ask_liquidity,
+        "total_liquidity": total_liquidity,
+    }
+
+
+async def check_usdt_balance(client, required_amount: float) -> Tuple[bool, float]:
+    """
+    Checks if USDT balance is sufficient.
+
+    Returns:
+        (has_balance, available_balance)
+    """
+    try:
+        available = await get_usdt_balance(client)
+        return available >= required_amount, available
+    except Exception as e:
+        logger.error(f"Error checking balance: {e}")
+        logger.error(traceback.format_exc())
+        return False, 0.0
+
+
+async def place_market_order(
+    client, order_params: dict
+) -> tuple[bool, str | None, str | None]:
+    """
+    Places a market order on the exchange.
+
+    Returns:
+        (success, order_id, error_message)
+    """
+    try:
+        order_data = PlaceOrderDataInput(
+            marketId=order_params["market_id"],
+            tokenId=order_params["token_id"],
+            side=order_params["side"],
+            orderType=MARKET_ORDER,
+            price="0",
+            makerAmountInQuoteToken=order_params["amount"],
+        )
+
+        def _place_order_sync():
+            return client.place_limit_order(order_data, check_approval=True)
+
+        result = await asyncio.to_thread(_place_order_sync)
+
+        if result.errno == 0:
+            order_id = "N/A"
+            if hasattr(result, "result") and hasattr(result.result, "order_data"):
+                order_data_obj = result.result.order_data
+                if hasattr(order_data_obj, "order_id"):
+                    order_id = order_data_obj.order_id
+                elif hasattr(order_data_obj, "id"):
+                    order_id = order_data_obj.id
+            return True, str(order_id), None
+
+        error_msg = (
+            result.errmsg
+            if hasattr(result, "errmsg") and result.errmsg
+            else f"Error code: {result.errno}"
+        )
+        logger.error(
+            f"Error placing market order: {error_msg}\n"
+            f"  - errno: {result.errno}\n"
+            f"  - errmsg: {getattr(result, 'errmsg', None)}\n"
+            f"  - Full result: {result}"
+        )
+        return False, None, error_msg
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.error(
+            f"Exception while placing market order: {error_msg}\n"
+            f"  - Exception type: {type(exc).__name__}\n"
+            f"  - Exception args: {exc.args}\n"
+            f"  - Full traceback:\n{traceback.format_exc()}"
+        )
+        return False, None, error_msg
+
+
+async def place_limit_order(
+    client, order_params: dict
+) -> tuple[bool, str | None, str | None]:
+    """
+    Places a limit order on the market.
+
+    Returns:
+        (success, order_id, error_message)
+    """
+    try:
+        # client.enable_trading()
+        # enable_trading() не требуется, так как check_approval=True в place_limit_order()
+        # автоматически проверяет и включает торговлю при необходимости.
+        # SDK кэширует результат на enable_trading_check_interval (1 час).
+
+        price = float(order_params["price"])
+        price_rounded = round(price, 3)
+
+        MIN_PRICE = 0.001
+        MAX_PRICE = 0.999
+
+        if price_rounded < MIN_PRICE:
+            error_msg = f"Price {price_rounded} is less than minimum {MIN_PRICE}"
+            logger.error(error_msg)
+            return False, None, error_msg
+
+        if price_rounded > MAX_PRICE:
+            error_msg = f"Price {price_rounded} is greater than maximum {MAX_PRICE}"
+            logger.error(error_msg)
+            return False, None, error_msg
+
+        order_data = PlaceOrderDataInput(
+            marketId=order_params["market_id"],
+            tokenId=order_params["token_id"],
+            side=order_params["side"],
+            orderType=LIMIT_ORDER,
+            price=str(price_rounded),
+            makerAmountInQuoteToken=order_params["amount"],
+        )
+
+        logger.info(
+            f"Placing order with params: market_id={order_params['market_id']}, "
+            f"token_id={order_params['token_id']}, side={order_params['side']}, "
+            f"price={price_rounded}, amount={order_params['amount']}"
+        )
+        logger.info(
+            f"Order data object: {order_data}, order_data attributes: {dir(order_data)}"
+        )
+
+        def _place_order_sync():
+            return client.place_limit_order(order_data, check_approval=True)
+
+        result = await asyncio.to_thread(_place_order_sync)
+
+        if result.errno != 0:
+            result_dict = {}
+            for attr in dir(result):
+                if not attr.startswith("_"):
+                    try:
+                        value = getattr(result, attr)
+                        if not callable(value):
+                            result_dict[attr] = value
+                    except Exception:
+                        pass
+            logger.error(f"Result error object all attributes: {result_dict}")
+
+        if result.errno == 0:
+            order_id = "N/A"
+            if hasattr(result, "result") and hasattr(result.result, "order_data"):
+                order_data_obj = result.result.order_data
+                if hasattr(order_data_obj, "order_id"):
+                    order_id = order_data_obj.order_id
+                elif hasattr(order_data_obj, "id"):
+                    order_id = order_data_obj.id
+            return True, str(order_id), None
+
+        error_msg = (
+            result.errmsg
+            if hasattr(result, "errmsg") and result.errmsg
+            else f"Error code: {result.errno}"
+        )
+        logger.error(
+            f"Error placing order: {error_msg}\n"
+            f"  - errno: {result.errno}\n"
+            f"  - errmsg: {getattr(result, 'errmsg', None)}\n"
+            f"  - Full result: {result}"
+        )
+        return False, None, error_msg
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.error(
+            f"Exception while placing order: {error_msg}\n"
+            f"  - Exception type: {type(exc).__name__}\n"
+            f"  - Exception args: {exc.args}\n"
+            f"  - Full traceback:\n{traceback.format_exc()}"
+        )
+        return False, None, error_msg
 
 
 async def get_my_orders(

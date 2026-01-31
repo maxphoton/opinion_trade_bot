@@ -389,6 +389,14 @@ async def process_account_orders(
 
                 # Продолжаем обработку, если не удалось проверить статус (graceful degradation)
 
+            # Если offset и threshold равны 0, не переставляем ордер (только контроль статуса)
+            if offset_ticks == 0 and reposition_threshold_cents == 0:
+                logger.info(
+                    f"Пропуск перестановки ордера {order_id}: offset_ticks=0, "
+                    f"reposition_threshold_cents=0"
+                )
+                continue
+
             # Получаем текущую цену рынка
             new_current_price = get_current_market_price(client, token_id, side)
             if not new_current_price:
@@ -1002,11 +1010,11 @@ async def async_sync_all_orders(bot, market_id: Optional[int] = None):
         logger.info(f"{'=' * 80}")
 
         # Проверяем статус прокси
-        if proxy_status == "failed":
-            logger.warning(
-                f"Пропуск аккаунта {account_id}: прокси не работает (статус: failed)"
-            )
-            continue
+        # if proxy_status == "failed":
+        #     logger.warning(
+        #         f"Пропуск аккаунта {account_id}: прокси не работает (статус: failed)"
+        #     )
+        #     continue
 
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления

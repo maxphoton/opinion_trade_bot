@@ -17,6 +17,9 @@ async def handle_unknown_message(message: Message):
     """
     await message.answer(
         """Use the /floating_order command to start a new farm.
+Use the /market command to place a market order.
+Use the /limit command to place a limit order.
+Use the /limit_first command for a fixed offset limit order.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
 Use the /list_accounts command to view all your accounts.
