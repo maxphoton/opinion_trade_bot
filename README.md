@@ -227,7 +227,7 @@ The invite code is validated and used atomically at the end of registration only
 
 ### Placing Orders
 
-1. Use `/make_market` to start the order placement flow
+1. Use `/floating_order` to start the order placement flow
 2. **Select Account**: Choose which Opinion account to use (if you have multiple)
 3. Enter a market URL from Opinion.trade (e.g., `https://app.opinion.trade/detail?topicId=155`)
 4. For categorical markets, select a submarket
@@ -280,7 +280,7 @@ bot/
 ├── routers/                 # Bot command routers
 │   ├── start.py             # User registration flow (/start command)
 │   ├── account.py           # Account management (/add_account, /list_accounts, /remove_account)
-│   ├── make_market.py        # Market order placement flow (/make_market command)
+│   ├── floating_order.py        # Market order placement flow (/floating_order command)
 │   ├── orders.py            # Orders management router (/orders command)
 │   ├── orders_dialog.py     # Order management dialog (aiogram-dialog)
 │   ├── users.py             # User commands (/help, /support, /check_account)
@@ -313,7 +313,7 @@ The bot uses a modular router-based architecture:
 - **Routers**: Separate routers for different features organized in `routers/` directory
   - `start.py` - User registration
   - `account.py` - Account management
-  - `make_market.py` - Order placement
+  - `floating_order.py` - Order placement
   - `orders.py` / `orders_dialog.py` - Order management
   - `users.py` - User commands (help, support, check_account)
   - `admin.py` - Admin commands
@@ -368,7 +368,7 @@ The bot supports the following environment variables:
 - `/list_accounts` - View all your Opinion accounts
 - `/remove_account` - Remove an Opinion account
 - `/check_account` - View account statistics (balance, orders, positions)
-- `/make_market` - Start placing a limit order
+- `/floating_order` - Start placing a limit order
 - `/orders` - View, search, and manage your orders
 - `/help` - View comprehensive bot instructions (available in English, Russian, and Chinese)
 - `/support` - Contact administrator with questions or issues (supports text and photos)

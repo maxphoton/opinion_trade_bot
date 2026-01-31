@@ -45,7 +45,7 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(
             """✅ You are already registered!
 
-Use the /make_market command to place an order.
+Use the /floating_order command to place an order.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
 Use the /list_accounts command to view all your accounts.
@@ -128,7 +128,7 @@ Now you need to add your Opinion account.
 Step 2: Use the /add_account command to add your first Opinion account with wallet address, private key, and API key.
 
 After adding an account, you can:
-• Use /make_market to place orders
+• Use /floating_order to place orders
 • Use /orders to manage your orders
 • Use /check_account to view account statistics
 • Use /list_accounts to view all your accounts"""

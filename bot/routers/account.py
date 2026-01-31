@@ -335,7 +335,7 @@ async def save_and_notify_account(
 💰 Balance: <b>{balance:.6f} USDT</b>{proxy_info}
 
 Use /list_accounts to view all your accounts.
-Use /make_market to place an order.""",
+Use /floating_order to place an order.""",
             parse_mode="HTML",
         )
 

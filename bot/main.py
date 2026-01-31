@@ -4,7 +4,7 @@
 Алгоритм работы:
 1. Команда /start - регистрация (кошелек, приватный ключ, API ключ)
 2. Данные шифруются и сохраняются в SQLite
-3. Команда /make_market - размещение ордера (логика из simple_flow.py)
+3. Команда /floating_order - размещение ордера (логика из simple_flow.py)
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from opinion.sync_orders import async_sync_all_orders
 # from opinion.websocket_sync import WebSocketOrderSync, set_websocket_sync
 from routers.account import account_router
 from routers.admin import admin_router
-from routers.make_market import market_router
+from routers.floating_order import market_router
 from routers.orders import orders_manage_router
 from routers.orders_dialog import orders_dialog
 from routers.plug import plug_router

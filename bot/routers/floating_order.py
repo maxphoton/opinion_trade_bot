@@ -1,5 +1,5 @@
 """
-Router for market order placement flow (/make_market command).
+Router for market order placement flow (/floating_order command).
 Handles the complete order placement process from URL input to order confirmation.
 """
 
@@ -377,10 +377,10 @@ async def place_order(
 market_router = Router()
 
 
-@market_router.message(Command("make_market"))
-async def cmd_make_market(message: Message, state: FSMContext):
-    """Handler for /make_market command - start of order placement process."""
-    logger.info(f"Команда /make_market от пользователя {message.from_user.id}")
+@market_router.message(Command("floating_order"))
+async def cmd_floating_order(message: Message, state: FSMContext):
+    """Handler for /floating_order command - start of order placement process."""
+    logger.info(f"Команда /floating_order от пользователя {message.from_user.id}")
     telegram_id = message.from_user.id
     user = await get_user(telegram_id)
 
@@ -485,7 +485,7 @@ async def process_market_url(message: Message, state: FSMContext):
     account_id = data.get("account_id")
     if not account_id:
         await message.answer(
-            """❌ Account not selected. Please start again with /make_market."""
+            """❌ Account not selected. Please start again with /floating_order."""
         )
         await state.clear()
         return
@@ -494,7 +494,7 @@ async def process_market_url(message: Message, state: FSMContext):
     account = await get_opinion_account(account_id)
     if not account:
         await message.answer(
-            """❌ Account not found. Please start again with /make_market."""
+            """❌ Account not found. Please start again with /floating_order."""
         )
         await state.clear()
         return
@@ -1220,7 +1220,7 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
 
     # Send instruction message
     await callback.message.answer(
-        """Use the /make_market command to start a new farm.
+        """Use the /floating_order command to start a new farm.
 Use the /orders command to manage your orders.
 Use the /check_account command to view account statistics.
 Use the /list_accounts command to view all your accounts.
@@ -1367,7 +1367,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
             if not account_id:
                 logger.error("Account ID not found in state data")
                 await callback.message.edit_text(
-                    """❌ Account not found. Please start again with /make_market."""
+                    """❌ Account not found. Please start again with /floating_order."""
                 )
                 await state.clear()
                 try:
@@ -1445,7 +1445,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Order ID: <code>{order_id}</code>
 
 📌 <b>Useful commands:</b>
-• /make_market - start a new farm
+• /floating_order - start a new farm
 • /orders - manage your orders
 • /check_account - view account statistics"""
         )
@@ -1455,7 +1455,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 {error_message if error_message else "Please check your balance and order parameters."}
 
 📌 <b>Useful commands:</b>
-• /make_market - start a new farm
+• /floating_order - start a new farm
 • /orders - manage your orders
 • /check_account - view account statistics"""
         await callback.message.edit_text(error_text)

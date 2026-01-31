@@ -31,7 +31,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • <b>/remove_account</b> — удалить аккаунт
 • <b>/check_account</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется и обновляется статус прокси аккаунта
 
-<b>📊 Размещение ордера (/make_market):</b>
+<b>📊 Размещение ордера (/floating_order):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
 2. Введите ссылку на маркет Opinion.trade
 3. Если маркет категориальный — выберите подмаркет
@@ -116,7 +116,7 @@ The bot automatically maintains limit orders, preventing them from being execute
 • <b>/remove_account</b> — remove an account
 • <b>/check_account</b> — check account balance, orders, and positions. When called, it automatically checks and updates the account's proxy status
 
-<b>📊 Placing an Order (/make_market):</b>
+<b>📊 Placing an Order (/floating_order):</b>
 1. <b>Select Account</b> — if you have multiple accounts
 2. Enter the Opinion.trade market link
 3. If the market is categorical — select a submarket
@@ -201,7 +201,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • <b>/remove_account</b> — 删除账户
 • <b>/check_account</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
 
-<b>📊 下订单 (/make_market):</b>
+<b>📊 下订单 (/floating_order):</b>
 1. <b>选择账户</b> — 如果您有多个账户
 2. 输入Opinion.trade市场链接
 3. 如果市场是分类市场 — 选择子市场
