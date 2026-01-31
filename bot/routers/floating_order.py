@@ -131,9 +131,9 @@ async def cmd_floating_order(message: Message, state: FSMContext):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """❌ You don't have any Opinion accounts yet.
+            """❌ You don't have any Opinion profiles yet.
 
-Use /add_account to add your first Opinion account."""
+Use /add_profile to add your first Opinion profile."""
         )
         return
 
@@ -959,8 +959,8 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         """Use the /floating_order command to start a new farm.
 Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
+Use the /check_profile command to view profile statistics.
+Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )
@@ -1184,7 +1184,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm
 • /orders - manage your orders
-• /check_account - view account statistics"""
+• /check_profile - view profile statistics"""
         )
     else:
         error_text = f"""❌ <b>Failed to place order</b>
@@ -1194,7 +1194,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm
 • /orders - manage your orders
-• /check_account - view account statistics"""
+• /check_profile - view profile statistics"""
         await callback.message.edit_text(error_text)
 
     await state.clear()

@@ -11,8 +11,8 @@ from aiogram_dialog.widgets.text import Const, Format
 from opinion.client_factory import create_client
 from service.database import (
     get_account_orders,
-    get_order_by_id,
     get_opinion_account,
+    get_order_by_id,
     update_order_status,
 )
 
@@ -184,8 +184,8 @@ async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManage
     await callback.message.answer(
         """Use the /floating_order command to start a new farm.
 Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
+Use the /check_profile command to view profile statistics.
+Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )

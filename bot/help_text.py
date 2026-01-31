@@ -12,7 +12,7 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • При первом запуске введите инвайт-код
 • После успешной регистрации вы получите доступ к боту
 
-<b>Шаг 2:</b> Команда <b>/add_account</b>
+<b>Шаг 2:</b> Команда <b>/add_profile</b>
 📹 <a href="https://t.me/cmchn_public/165">Видео гайд по добавлению аккаунта</a>
 • Добавьте аккаунт Opinion для работы с ордерами
 • При добавлении аккаунта укажите:
@@ -25,10 +25,10 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 💡 <b>Множественные аккаунты:</b> Вы можете добавить несколько аккаунтов Opinion к одному Telegram аккаунту. При размещении ордера вы сможете выбрать, какой аккаунт использовать.
 
 <b>👤 Управление аккаунтами:</b>
-• <b>/add_account</b> — добавить новый аккаунт Opinion
-• <b>/list_accounts</b> — просмотреть все ваши аккаунты
-• <b>/remove_account</b> — удалить аккаунт
-• <b>/check_account</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется
+• <b>/add_profile</b> — добавить новый аккаунт Opinion
+• <b>/profile_list</b> — просмотреть все ваши аккаунты
+• <b>/remove_profile</b> — удалить аккаунт
+• <b>/check_profile</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется
 
 <b>📊 Размещение ордера (/floating_order):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
@@ -93,26 +93,26 @@ The bot automatically maintains limit orders, preventing them from being execute
 • On first launch, enter the invite code
 • After successful registration, you'll get access to the bot
 
-<b>Step 2:</b> Command <b>/add_account</b>
-📹 <a href="https://t.me/cmchn_public/165">Video guide on adding an account</a>
-• Add an Opinion account to work with orders
-• When adding an account, specify:
+<b>Step 2:</b> Command <b>/add_profile</b>
+📹 <a href="https://t.me/cmchn_public/165">Video guide on adding an profile</a>
+• Add an Opinion profile to work with orders
+• When adding an profile, specify:
   • <b>Wallet</b> — the one for which the API key was obtained
   • <b>Private key</b> — from the same wallet
   • <b>API key</b> — obtained for this wallet
 
 ⚠️ <b>Important:</b> All three parameters (wallet, private key, API key) must belong to the same wallet. An API key from another wallet will not allow placing orders.
 
-💡 <b>Multiple Accounts:</b> You can add multiple Opinion accounts to one Telegram account. Each account can have its own proxy. When placing an order, you'll be able to select which account to use.
+💡 <b>Multiple Profiles:</b> You can add multiple Opinion profiles to one Telegram profile. Each profile can have its own proxy. When placing an order, you'll be able to select which profile to use.
 
-<b>👤 Account Management:</b>
-• <b>/add_account</b> — add a new Opinion account
-• <b>/list_accounts</b> — view all your accounts
-• <b>/remove_account</b> — remove an account
-• <b>/check_account</b> — check account balance, orders, and positions. When called, it automatically checks and updates the account's proxy status
+<b>👤 Profile Management:</b>
+• <b>/add_profile</b> — add a new Opinion profile
+• <b>/profile_list</b> — view all your profiles
+• <b>/remove_profile</b> — remove an profile
+• <b>/check_profile</b> — check profile balance, orders, and positions. When called, it automatically checks and updates the profile's proxy status
 
 <b>📊 Placing an Order (/floating_order):</b>
-1. <b>Select Account</b> — if you have multiple accounts
+1. <b>Select Profile</b> — if you have multiple profiles
 2. Enter the Opinion.trade market link
 3. If the market is categorical — select a submarket
 4. Review market information (spread, liquidity, best prices)
@@ -139,7 +139,7 @@ The order will be placed 0.1 cents below the current best bid price. The bot wil
 
 <b>📋 Viewing Orders (/orders):</b>
 The command allows you to:
-• View all your orders (grouped by accounts)
+• View all your orders (grouped by profiles)
 • Cancel an order
 • Find an order by ID, market ID, market title, token name, or side
 • View order status (pending/finished/canceled)
@@ -174,7 +174,7 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • 首次启动时，输入邀请码
 • 注册成功后，您将获得对机器人的访问权限
 
-<b>步骤2:</b> 命令 <b>/add_account</b>
+<b>步骤2:</b> 命令 <b>/add_profile</b>
 📹 <a href="https://t.me/cmchn_public/165">添加账户视频指南</a>
 • 添加Opinion账户以处理订单
 • 添加账户时，请指定：
@@ -187,10 +187,10 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 💡 <b>多个账户:</b> 您可以将多个Opinion账户添加到一个Telegram账户。每个账户可以有自己的代理。下订单时，您可以选择使用哪个账户。
 
 <b>👤 账户管理:</b>
-• <b>/add_account</b> — 添加新的Opinion账户
-• <b>/list_accounts</b> — 查看所有账户
-• <b>/remove_account</b> — 删除账户
-• <b>/check_account</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
+• <b>/add_profile</b> — 添加新的Opinion账户
+• <b>/profile_list</b> — 查看所有账户
+• <b>/remove_profile</b> — 删除账户
+• <b>/check_profile</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
 
 <b>📊 下订单 (/floating_order):</b>
 1. <b>选择账户</b> — 如果您有多个账户

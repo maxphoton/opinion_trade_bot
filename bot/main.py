@@ -147,7 +147,7 @@ async def main():
     dp.include_router(orders_manage_router)  # Orders management router
     dp.include_router(
         user_router
-    )  # User commands router (help, support, check_account)
+    )  # User commands router (help, support, check_profile)
     dp.include_router(admin_router)  # Admin commands router
     dp.include_router(plug_router)  # Fallback router (unknown message handler)
 

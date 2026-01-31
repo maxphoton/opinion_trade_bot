@@ -1,6 +1,6 @@
 """
 Router for account management commands.
-Handles adding, listing, and removing Opinion accounts.
+Handles adding, listing, and removing Opinion profiles.
 """
 
 import logging
@@ -50,10 +50,10 @@ class AddAccountStates(StatesGroup):
 account_router = Router()
 
 
-@account_router.message(Command("add_account"))
+@account_router.message(Command("add_profile"))
 async def cmd_add_account(message: Message, state: FSMContext):
-    """Handler for /add_account command - start of account addition process."""
-    logger.info(f"Команда /add_account от пользователя {message.from_user.id}")
+    """Handler for /add_profile command - start of account addition process."""
+    logger.info(f"Команда /add_profile от пользователя {message.from_user.id}")
     telegram_id = message.from_user.id
 
     user = await get_user(telegram_id)
@@ -206,7 +206,7 @@ Please enter a different API key:"""
         pass
 
     # API key is the last step now
-    await message.answer("✅ API key saved. Adding account...")
+    await message.answer("✅ API key saved. Adding profile...")
 
     data = await state.get_data()
     await save_and_notify_account(
@@ -271,7 +271,7 @@ Please enter a working proxy in format ip:port:login:password:"""
 async def cancel_add_account(callback: CallbackQuery, state: FSMContext):
     """Handles canceling account addition."""
     await state.clear()
-    await callback.message.answer("❌ Account addition cancelled.")
+    await callback.message.answer("❌ Profile addition cancelled.")
     await callback.answer()
 
 
@@ -330,13 +330,13 @@ async def save_and_notify_account(
             )
 
         await message.answer(
-            f"""✅ <b>Account added successfully!</b>
+            f"""✅ <b>Profile added successfully!</b>
 
-🆔 Account ID: <code>{account_id}</code>
+🆔 Profile ID: <code>{account_id}</code>
 💼 Wallet: <code>{wallet_address[:10]}...{wallet_address[-6:]}</code>
 💰 Balance: <b>{balance:.6f} USDT</b>{proxy_info}
 
-Use /list_accounts to view all your accounts.
+Use /profile_list to view all your profiles.
 Use /floating_order to place an order.""",
             parse_mode="HTML",
         )
@@ -344,17 +344,17 @@ Use /floating_order to place an order.""",
     except Exception as e:
         logger.error(f"Ошибка при добавлении аккаунта: {e}")
         await message.answer(
-            f"""❌ Failed to add account: {str(e)}
+            f"""❌ Failed to add profile: {str(e)}
 
 Please check your credentials and try again."""
         )
         await state.clear()
 
 
-@account_router.message(Command("list_accounts"))
+@account_router.message(Command("profile_list"))
 async def cmd_list_accounts(message: Message):
-    """Handler for /list_accounts command - shows all user accounts."""
-    logger.info(f"Команда /list_accounts от пользователя {message.from_user.id}")
+    """Handler for /profile_list command - shows all user profiles."""
+    logger.info(f"Команда /profile_list от пользователя {message.from_user.id}")
     telegram_id = message.from_user.id
 
     user = await get_user(telegram_id)
@@ -367,9 +367,9 @@ async def cmd_list_accounts(message: Message):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """📋 You don't have any accounts yet.
+            """📋 You don't have any profiles yet.
 
-Use /add_account to add your first Opinion account."""
+Use /add_profile to add your first Opinion profile."""
         )
         return
 
@@ -390,24 +390,24 @@ Use /add_account to add your first Opinion account."""
             proxy_info = "\n\n🔐 Proxy: Not configured"
 
         accounts_list.append(
-            f"{i}. Account ID: {account_id}\n"
+            f"{i}. Profile ID: {account_id}\n"
             f"   Wallet: {wallet[:10]}...{wallet[-6:]}{proxy_info}"
         )
 
-    message_text = f"""📋 Your Opinion Accounts
+    message_text = f"""📋 Your Opinion Profiles
 
-You can use /add_account, /remove_account or /check_account commands
+You can use /add_profile, /remove_profile or /check_profile commands
 
 {chr(10).join(accounts_list)}
 
-Total accounts: {len(accounts)}"""
+Total profiles: {len(accounts)}"""
     await message.answer(message_text)
 
 
-@account_router.message(Command("remove_account"))
+@account_router.message(Command("remove_profile"))
 async def cmd_remove_account(message: Message):
-    """Handler for /remove_account command - shows account selection for removal."""
-    logger.info(f"Команда /remove_account от пользователя {message.from_user.id}")
+    """Handler for /remove_profile command - shows account selection for removal."""
+    logger.info(f"Команда /remove_profile от пользователя {message.from_user.id}")
     telegram_id = message.from_user.id
 
     user = await get_user(telegram_id)
@@ -420,9 +420,9 @@ async def cmd_remove_account(message: Message):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """📋 You don't have any accounts to remove.
+            """📋 You don't have any profiles to remove.
 
-Use /add_account to add an Opinion account."""
+Use /add_profile to add an Opinion Profile."""
         )
         return
 
@@ -439,10 +439,10 @@ Use /add_account to add an Opinion account."""
     builder.adjust(1)
 
     await message.answer(
-        """🗑️ Remove Account
+        """🗑️ Remove Profile
 
-Select an account to remove:
-⚠️ Note: Account can only be removed if it has no active orders.""",
+Select an profile to remove:
+⚠️ Note: Profile can only be removed if it has no active orders.""",
         reply_markup=builder.as_markup(),
     )
 
@@ -454,20 +454,20 @@ async def process_remove_account(callback: CallbackQuery):
     try:
         account_id = int(account_id_str)
     except ValueError:
-        await callback.answer("Invalid account ID", show_alert=True)
+        await callback.answer("Invalid profile ID", show_alert=True)
         return
 
     success = await delete_opinion_account(account_id)
     if success:
         await callback.message.edit_text(
-            f"✅ Account {account_id} has been removed successfully."
+            f"✅ Profile {account_id} has been removed successfully."
         )
     else:
         await callback.message.edit_text(
-            f"""❌ Failed to remove account {account_id}.
+            f"""❌ Failed to remove profile {account_id}.
 
 Possible reasons:
-• Account has active orders
-• Account not found"""
+• Profile has active orders
+• Profile not found"""
         )
     await callback.answer()

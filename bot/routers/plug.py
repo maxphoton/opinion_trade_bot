@@ -21,8 +21,8 @@ Use the /market command to place a market order.
 Use the /limit command to place a limit order.
 Use the /limit_first command for a fixed offset limit order.
 Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
+Use the /check_profile command to view profile statistics.
+Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator."""
     )

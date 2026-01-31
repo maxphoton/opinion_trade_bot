@@ -76,9 +76,9 @@ async def cmd_limit_first(message: Message, state: FSMContext):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """❌ You don't have any Opinion accounts yet.
+            """❌ You don't have any Opinion profiles yet.
 
-Use /add_account to add your first Opinion account."""
+Use /add_profile to add your first Opinion profile."""
         )
         return
 
@@ -733,6 +733,6 @@ async def process_cancel(callback: CallbackQuery, state: FSMContext):
 Use the /limit command to place a limit order.
 Use the /market command to place a market order.
 Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
+Use the /check_profile command to view profile statistics.
 Use the /help command to view instructions."""
     )

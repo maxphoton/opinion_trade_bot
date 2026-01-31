@@ -47,8 +47,8 @@ async def cmd_start(message: Message, state: FSMContext):
 
 Use the /floating_order command to place an order.
 Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
+Use the /check_profile command to view profile statistics.
+Use the /profile_list command to view all your accounts.
 Use the /help command to view instructions.
 Use the /support command to contact administrator.
 
@@ -123,13 +123,13 @@ Please start registration again with /start using a valid invite code."""
     await message.answer(
         """✅ Registration Completed!
 
-Now you need to add your Opinion account.
+Now you need to add your Opinion profile.
 
-Step 2: Use the /add_account command to add your first Opinion account with wallet address, private key, and API key.
+Step 2: Use the /add_profile command to add your first Opinion profile with wallet address, private key, and API key.
 
 After adding an account, you can:
 • Use /floating_order to place orders
 • Use /orders to manage your orders
-• Use /check_account to view account statistics
-• Use /list_accounts to view all your accounts"""
+• Use /check_profile to view profile statistics
+• Use /profile_list to view all your accounts"""
     )

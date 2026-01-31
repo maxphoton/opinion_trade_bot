@@ -50,10 +50,10 @@ class SupportStates(StatesGroup):
 user_router = Router()
 
 
-@user_router.message(Command("check_account"))
+@user_router.message(Command("check_profile"))
 async def cmd_check_account(message: Message):
-    """Обработчик команды /check_account - статистика по аккаунту."""
-    logger.info(f"Команда /check_account от пользователя {message.from_user.id}")
+    """Обработчик команды /check_profile - статистика по аккаунту."""
+    logger.info(f"Команда /check_profile от пользователя {message.from_user.id}")
     telegram_id = message.from_user.id
 
     # Проверяем, зарегистрирован ли пользователь
@@ -68,9 +68,9 @@ async def cmd_check_account(message: Message):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """❌ You don't have any Opinion accounts yet.
+            """❌ You don't have any Opinion profiles yet.
 
-Use /add_account to add your first Opinion account."""
+Use /add_profile to add your first Opinion profile."""
         )
         return
 
@@ -102,7 +102,7 @@ Select an account to view statistics:""",
 
 @user_router.callback_query(F.data.startswith("check_account_"))
 async def process_check_account_selection(callback: CallbackQuery):
-    """Handles account selection for check_account command."""
+    """Handles account selection for check_profile command."""
     account_id_str = callback.data.replace("check_account_", "")
     try:
         account_id = int(account_id_str)
@@ -117,7 +117,7 @@ async def process_check_account_selection(callback: CallbackQuery):
 
 @user_router.callback_query(F.data == "cancel_check_account")
 async def cancel_check_account_selection(callback: CallbackQuery):
-    """Handles canceling check_account selection."""
+    """Handles canceling check_profile selection."""
     await callback.message.edit_text("❌ Account check cancelled.")
     await callback.answer()
 
@@ -185,7 +185,7 @@ async def show_account_info(message: Message, account_id: int):
         wallet = account["wallet_address"]
 
         # Формируем сообщение
-        account_info = f"""📊 <b>Account Statistics</b>
+        account_info = f"""📊 <b>Profile Statistics</b>
 
 🆔 Account ID: {account_id}
 💼 Wallet: {wallet[:10]}...{wallet[-6:]}

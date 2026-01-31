@@ -7,8 +7,8 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 ### 🔐 Secure Registration with Invite System
 - **Two-Step Registration**: 
   - Step 1: `/start` command - register with invite code (10-character alphanumeric)
-  - Step 2: `/add_account` command - add Opinion account (wallet, private key, API key)
-- **Multiple Accounts Support**: Each Telegram user can add multiple Opinion accounts
+  - Step 2: `/add_profile` command - add Opinion profile (wallet, private key, API key)
+- **Multiple Accounts Support**: Each Telegram user can add multiple Opinion profiles
 - **Encrypted Storage**: All sensitive data (wallet address, private key, API key) is encrypted using AES-GCM encryption
 - **Async SQLite Database**: User credentials are stored locally in an encrypted SQLite database using `aiosqlite` for non-blocking operations
 - **Zero Trust**: Your private keys never leave your server in unencrypted form
@@ -28,11 +28,11 @@ A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.t
 - **Unique Codes**: 10-character alphanumeric codes with uniqueness validation
 
 ### 👤 Account Management
-- **Add Account**: `/add_account` command to add a new Opinion account (wallet, private key, API key)
-- **List Accounts**: `/list_accounts` command to view all your Opinion accounts
-- **Remove Account**: `/remove_account` command to delete an Opinion account
-- **Check Account**: `/check_account` command to view account statistics (balance, orders, positions)
-- **Multiple Accounts**: Support for multiple Opinion accounts per Telegram user
+- **Add Account**: `/add_profile` command to add a new Opinion profile (wallet, private key, API key)
+- **List Accounts**: `/profile_list` command to view all your Opinion profiles
+- **Remove Account**: `/remove_profile` command to delete an Opinion profile
+- **Check Account**: `/check_profile` command to view profile statistics (balance, orders, positions)
+- **Multiple Accounts**: Support for multiple Opinion profiles per Telegram user
 - **Account Selection**: When placing orders, you can select which account to use
 
 ### 👥 User Management (Admin Only)
@@ -182,8 +182,8 @@ docker-compose up -d
 2. Enter your invite code (10-character alphanumeric code)
 3. You're now registered in the bot system
 
-**Step 2: Add Opinion Account**
-1. Use `/add_account` command to add your Opinion account
+**Step 2: Add Opinion profile**
+1. Use `/add_profile` command to add your Opinion profile
 2. Enter your Balance spot address from your [Opinion.trade profile](https://app.opinion.trade?code=BJea79)
    - ⚠️ **Important**: Must be the wallet address for which the API key was obtained
 3. Enter your private key
@@ -198,7 +198,7 @@ All data is encrypted and stored securely. The bot validates:
 
 The invite code is validated and used atomically at the end of registration only if all checks pass.
 
-💡 **Note**: You can add multiple Opinion accounts to one Telegram account. Each account can have its own proxy.
+💡 **Note**: You can add multiple Opinion profiles to one Telegram account. Each account can have its own proxy.
 
 ### Invite Management (Admin Only)
 
@@ -209,10 +209,10 @@ The invite code is validated and used atomically at the end of registration only
 
 ### Managing Accounts
 
-1. **Add Account**: Use `/add_account` to add a new Opinion account
-2. **List Accounts**: Use `/list_accounts` to view all your Opinion accounts
-3. **Remove Account**: Use `/remove_account` to delete an Opinion account
-4. **Check Account**: Use `/check_account` to view account statistics:
+1. **Add Account**: Use `/add_profile` to add a new Opinion profile
+2. **List Accounts**: Use `/profile_list` to view all your Opinion profiles
+3. **Remove Account**: Use `/remove_profile` to delete an Opinion profile
+4. **Check Account**: Use `/check_profile` to view profile statistics:
    - USDT balance
    - Active orders count
    - Positions information
@@ -220,7 +220,7 @@ The invite code is validated and used atomically at the end of registration only
 ### Placing Orders
 
 1. Use `/floating_order` to start the order placement flow
-2. **Select Account**: Choose which Opinion account to use (if you have multiple)
+2. **Select Account**: Choose which Opinion profile to use (if you have multiple)
 3. Enter a market URL from Opinion.trade (e.g., `https://app.opinion.trade/detail?topicId=155`)
 4. For categorical markets, select a submarket
 5. Review market information (spread, liquidity, best bids/asks)
@@ -271,11 +271,11 @@ bot/
 ├── help_text.py             # Multi-language help text (English, Russian, Chinese)
 ├── routers/                 # Bot command routers
 │   ├── start.py             # User registration flow (/start command)
-│   ├── account.py           # Account management (/add_account, /list_accounts, /remove_account)
+│   ├── account.py           # Account management (/add_profile, /profile_list, /remove_profile)
 │   ├── floating_order.py        # Market order placement flow (/floating_order command)
 │   ├── orders.py            # Orders management router (/orders command)
 │   ├── orders_dialog.py     # Order management dialog (aiogram-dialog)
-│   ├── users.py             # User commands (/help, /support, /check_account)
+│   ├── users.py             # User commands (/help, /support, /check_profile)
 │   ├── admin.py             # Admin commands (/get_db, /get_invites, /delete_user, /stats)
 │   └── invites.py           # Invite management functions
 ├── service/                 # Core services
@@ -307,7 +307,7 @@ The bot uses a modular router-based architecture:
   - `account.py` - Account management
   - `floating_order.py` - Order placement
   - `orders.py` / `orders_dialog.py` - Order management
-  - `users.py` - User commands (help, support, check_account)
+  - `users.py` - User commands (help, support, check_profile)
   - `admin.py` - Admin commands
 - **Services**: Core services in `service/` directory
   - `config.py` - Configuration management
@@ -347,16 +347,16 @@ The bot supports the following environment variables:
 - `ADMIN_TELEGRAM_ID`: Telegram user ID for admin commands (required for invite management)
 - `WEBSOCKET_API_KEY`: Opinion Labs API key for WebSocket connections (optional, for future WebSocket synchronization feature)
 
-**Note**: Each Opinion account must have its own proxy configured via `/add_account`. Account-specific proxy is required and takes precedence over the global proxy setting.
+**Note**: Each Opinion profile must have its own proxy configured via `/add_profile`. Account-specific proxy is required and takes precedence over the global proxy setting.
 
 ## Commands
 
 ### User Commands
 - `/start` - Register with invite code
-- `/add_account` - Add a new Opinion account (wallet, private key, API key, proxy)
-- `/list_accounts` - View all your Opinion accounts
-- `/remove_account` - Remove an Opinion account
-- `/check_account` - View account statistics (balance, orders, positions)
+- `/add_profile` - Add a new Opinion profile (wallet, private key, API key, proxy)
+- `/profile_list` - View all your Opinion profiles
+- `/remove_profile` - Remove an Opinion profile
+- `/check_profile` - View profile statistics (balance, orders, positions)
 - `/floating_order` - Start placing a limit order
 - `/orders` - View, search, and manage your orders
 - `/help` - View comprehensive bot instructions (available in English, Russian, and Chinese)
@@ -479,7 +479,7 @@ The bot will soon transition to WebSocket-based synchronization for real-time or
   - `telegram_id` (PRIMARY KEY): User's Telegram ID
   - `username`: Telegram username
   - `created_at`: Registration timestamp
-- **opinion_accounts**: Encrypted Opinion account credentials
+- **opinion_accounts**: Encrypted Opinion profile credentials
   - `account_id` (PRIMARY KEY): Auto-increment account ID
   - `telegram_id` (FOREIGN KEY): Reference to users table
   - `wallet_address_cipher`, `wallet_nonce`: Encrypted wallet address
