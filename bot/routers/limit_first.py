@@ -14,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.helper import build_cancel_keyboard, calculate_target_price
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -31,8 +32,6 @@ from service.database import (
     get_user_accounts,
     save_order,
 )
-
-from routers.floating_order import calculate_target_price
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +51,6 @@ class LimitFirstOrderStates(StatesGroup):
 limit_first_order_router = Router()
 
 FIXED_OFFSET_TICKS = -10
-
-
-def build_cancel_keyboard(callback_data: str) -> InlineKeyboardBuilder:
-    """Creates a keyboard with a single cancel button."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✖️ Cancel", callback_data=callback_data)
-    return builder
 
 
 @limit_first_order_router.message(Command("limit_first"))

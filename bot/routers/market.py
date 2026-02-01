@@ -14,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.helper import build_cancel_keyboard
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -47,13 +48,6 @@ class MarketOrderStates(StatesGroup):
 
 
 market_order_router = Router()
-
-
-def build_cancel_keyboard(callback_data: str) -> InlineKeyboardBuilder:
-    """Creates a keyboard with a single cancel button."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✖️ Cancel", callback_data=callback_data)
-    return builder
 
 
 @market_order_router.message(Command("market"))

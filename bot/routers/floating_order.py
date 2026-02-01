@@ -6,7 +6,6 @@ Handles the complete order placement process from URL input to order confirmatio
 import hashlib
 import logging
 from datetime import datetime
-from typing import Optional, Tuple
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -15,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.helper import calculate_target_price, get_offset_bounds
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -54,57 +54,6 @@ class MarketOrderStates(StatesGroup):
     waiting_offset_ticks = State()
     waiting_reposition_threshold = State()  # Порог отклонения для перестановки ордера
     waiting_confirm = State()
-
-
-def calculate_target_price(
-    current_price: float, side: str, offset_ticks: int, tick_size: float = TICK_SIZE
-) -> Tuple[float, bool]:
-    """
-    Calculates target price for limit order.
-
-    API requires price range: 0.001 - 0.999 (inclusive)
-    """
-    MIN_PRICE = 0.001  # Minimum price per API requirements
-    MAX_PRICE = 0.999  # Maximum price per API requirements (not 1.0!)
-
-    if side == "BUY":
-        target = current_price - offset_ticks * tick_size
-    else:  # SELL
-        target = current_price + offset_ticks * tick_size
-
-    # Limit to MIN_PRICE - MAX_PRICE range (0.001 - 0.999)
-    target = max(MIN_PRICE, min(MAX_PRICE, target))
-    is_valid = MIN_PRICE <= target <= MAX_PRICE
-    target = round(target, 3)
-
-    # Check that after rounding the price is still in valid range
-    if target < MIN_PRICE:
-        target = MIN_PRICE
-        is_valid = True
-    elif target > MAX_PRICE:
-        target = MAX_PRICE
-        is_valid = True
-
-    return target, is_valid
-
-
-def get_offset_bounds(
-    direction: Optional[str], max_offset_buy: int, max_offset_sell: int
-) -> Tuple[int, int]:
-    """
-    Returns direction-aware min/max offset bounds (in ticks).
-    """
-    if direction == "BUY":
-        min_offset = -max_offset_sell
-        max_offset = max_offset_buy
-    elif direction == "SELL":
-        min_offset = -max_offset_buy
-        max_offset = max_offset_sell
-    else:
-        min_offset = -max(max_offset_buy, max_offset_sell)
-        max_offset = max(max_offset_buy, max_offset_sell)
-
-    return min_offset, max_offset
 
 
 # ============================================================================
