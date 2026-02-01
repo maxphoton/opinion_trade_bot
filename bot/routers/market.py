@@ -19,6 +19,7 @@ from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
     get_categorical_market_submarkets,
+    get_latest_price,
     get_market_info,
     get_orderbooks,
     parse_market_url,
@@ -38,13 +39,13 @@ logger = logging.getLogger(__name__)
 class MarketOrderStates(StatesGroup):
     """States for the market order placement process."""
 
-    waiting_account_selection = State()
-    waiting_url = State()
-    waiting_submarket = State()
-    waiting_side = State()
-    waiting_direction = State()
-    waiting_amount = State()
-    waiting_confirm = State()
+    market_account_selection = State()
+    market_url = State()
+    market_submarket = State()
+    market_side = State()
+    market_direction = State()
+    market_amount = State()
+    market_confirm = State()
 
 
 market_order_router = Router()
@@ -82,7 +83,7 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
             reply_markup=builder.as_markup(),
             disable_web_page_preview=True,
         )
-        await state.set_state(MarketOrderStates.waiting_url)
+        await state.set_state(MarketOrderStates.market_url)
         return
 
     builder = InlineKeyboardBuilder()
@@ -102,12 +103,12 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
 Select an account to use:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(MarketOrderStates.waiting_account_selection)
+    await state.set_state(MarketOrderStates.market_account_selection)
 
 
 @market_order_router.callback_query(
     F.data.startswith("market_select_account_"),
-    MarketOrderStates.waiting_account_selection,
+    MarketOrderStates.market_account_selection,
 )
 async def process_account_selection(callback: CallbackQuery, state: FSMContext):
     """Handles account selection."""
@@ -127,11 +128,11 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
         reply_markup=builder.as_markup(),
         disable_web_page_preview=True,
     )
-    await state.set_state(MarketOrderStates.waiting_url)
+    await state.set_state(MarketOrderStates.market_url)
     await callback.answer()
 
 
-@market_order_router.message(MarketOrderStates.waiting_url)
+@market_order_router.message(MarketOrderStates.market_url)
 async def process_market_url(message: Message, state: FSMContext):
     """Handles market URL input."""
     url = message.text.strip()
@@ -244,7 +245,7 @@ Found submarkets: {len(submarket_list)}
 Select a submarket:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_submarket)
+        await state.set_state(MarketOrderStates.market_submarket)
         return
 
     yes_token_id = getattr(market, "yes_token_id", None)
@@ -388,12 +389,12 @@ Possible reasons:
 📈 Select side:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(MarketOrderStates.waiting_side)
+    await state.set_state(MarketOrderStates.market_side)
 
 
 @market_order_router.callback_query(
     F.data.startswith("market_submarket_"),
-    MarketOrderStates.waiting_submarket,
+    MarketOrderStates.market_submarket,
 )
 async def process_submarket(callback: CallbackQuery, state: FSMContext):
     """Handles submarket selection in categorical markets."""
@@ -454,7 +455,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
 
 
 @market_order_router.callback_query(
-    F.data.startswith("market_side_"), MarketOrderStates.waiting_side
+    F.data.startswith("market_side_"), MarketOrderStates.market_side
 )
 async def process_side(callback: CallbackQuery, state: FSMContext):
     """Handles side selection (YES/NO)."""
@@ -464,15 +465,14 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
     if side == "YES":
         token_id = data.get("yes_token_id")
         token_name = "YES"
-        yes_info = data.get("yes_info", {})
-        current_price = yes_info.get("mid_price") if yes_info else None
     else:
         token_id = data.get("no_token_id")
         token_name = "NO"
-        no_info = data.get("no_info", {})
-        current_price = no_info.get("mid_price") if no_info else None
 
-    if not current_price:
+    client = data.get("client")
+    current_price = await get_latest_price(client, token_id)
+
+    if current_price is None:
         await callback.message.answer(
             "❌ Failed to determine current price for selected token"
         )
@@ -504,11 +504,11 @@ Select order direction:""",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_direction)
+    await state.set_state(MarketOrderStates.market_direction)
 
 
 @market_order_router.callback_query(
-    F.data.startswith("market_dir_"), MarketOrderStates.waiting_direction
+    F.data.startswith("market_dir_"), MarketOrderStates.market_direction
 )
 async def process_direction(callback: CallbackQuery, state: FSMContext):
     """Handles direction selection (BUY/SELL)."""
@@ -526,10 +526,10 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_amount)
+    await state.set_state(MarketOrderStates.market_amount)
 
 
-@market_order_router.message(MarketOrderStates.waiting_amount)
+@market_order_router.message(MarketOrderStates.market_amount)
 async def process_amount(message: Message, state: FSMContext):
     """Handles amount input for market orders."""
     try:
@@ -589,11 +589,11 @@ Place this market order now?"""
     builder.adjust(2)
 
     await message.answer(confirm_text, reply_markup=builder.as_markup())
-    await state.set_state(MarketOrderStates.waiting_confirm)
+    await state.set_state(MarketOrderStates.market_confirm)
 
 
 @market_order_router.callback_query(
-    F.data.startswith("market_confirm_"), MarketOrderStates.waiting_confirm
+    F.data.startswith("market_confirm_"), MarketOrderStates.market_confirm
 )
 async def process_confirm(callback: CallbackQuery, state: FSMContext):
     """Handles order placement confirmation."""
