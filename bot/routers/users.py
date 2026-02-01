@@ -220,7 +220,10 @@ async def cmd_help(message: Message):
     builder.adjust(3)
 
     await message.answer(
-        HELP_TEXT_ENG, parse_mode="HTML", reply_markup=builder.as_markup()
+        HELP_TEXT_ENG,
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
 
 
@@ -248,7 +251,10 @@ async def process_help_lang(callback: CallbackQuery):
 
     try:
         await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=builder.as_markup()
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+            disable_web_page_preview=True,
         )
     except Exception as e:
         logger.error(f"Ошибка при обновлении текста инструкции: {e}")

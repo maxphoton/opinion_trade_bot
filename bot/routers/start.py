@@ -56,7 +56,9 @@ Use the /help to view instructions.
 Use the /support to contact administrator.
 
 🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
-📚 Docs: https://bidask-bot.gitbook.io/docs/"""
+
+📚 Docs: https://bidask-bot.gitbook.io/docs/""",
+            disable_web_page_preview=True,
         )
         return
 
@@ -70,7 +72,8 @@ Use the /support to contact administrator.
 
 To register, you need an invite code.
 
-Please enter your invite code:"""
+Please enter your invite code:""",
+        disable_web_page_preview=True,
     )
     await state.set_state(RegistrationStates.waiting_invite)
 
@@ -143,5 +146,6 @@ After adding an account, you can:
 • Use /help to view instructions.
 • Use /support to contact administrator.
 
-📚 Docs: https://bidask-bot.gitbook.io/docs/"""
+📚 Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )

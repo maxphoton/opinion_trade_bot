@@ -98,6 +98,7 @@ Use /add_profile to add your first Opinion profile."""
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
             reply_markup=builder.as_markup(),
+            disable_web_page_preview=True,
         )
         await state.set_state(MarketOrderStates.waiting_url)
         return
@@ -144,6 +145,7 @@ async def process_account_selection(callback: CallbackQuery, state: FSMContext):
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
         reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
     await state.set_state(MarketOrderStates.waiting_url)
     await callback.answer()
@@ -915,7 +917,9 @@ Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
 Use the /support to contact administrator.
-Docs: https://bidask-bot.gitbook.io/docs/"""
+
+sDocs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )
 
 
@@ -1147,7 +1151,8 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm
 • /orders - manage your orders
-• /check_profile - view profile statistics"""
+• /check_profile - view profile statistics""",
+            disable_web_page_preview=True,
         )
     else:
         error_text = f"""❌ <b>Failed to place order</b>

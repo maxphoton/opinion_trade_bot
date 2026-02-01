@@ -25,5 +25,7 @@ Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
 Use the /support to contact administrator.
-Docs: https://bidask-bot.gitbook.io/docs/"""
+
+Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )
