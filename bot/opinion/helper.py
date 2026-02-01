@@ -106,3 +106,16 @@ def get_offset_bounds(
         max_offset = max(max_offset_buy, max_offset_sell)
 
     return min_offset, max_offset
+
+
+def get_market_url(market_id: int, root_market_id: Optional[int] = None) -> str:
+    """
+    Builds a market URL.
+
+    Args:
+        market_id: Market ID
+        root_market_id: Root market ID for categorical markets
+    """
+    if root_market_id is not None:
+        return f"https://app.opinion.trade/detail?topicId={root_market_id}&type=multi"
+    return f"https://app.opinion.trade/detail?topicId={market_id}"

@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
-from opinion.helper import build_cancel_keyboard
+from opinion.helper import build_cancel_keyboard, get_market_url
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -652,12 +652,22 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         except Exception as exc:
             logger.error("Error saving market order to DB: %s", exc)
 
+        market_id = data.get("market_id")
+        root_market_id = data.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id) if market_id else None
+        market_link_line = (
+            f'• Market link: <a href="{market_url}">Open market</a>\n'
+            if market_url
+            else ""
+        )
+
         await callback.message.edit_text(
             f"""✅ <b>Market order placed!</b>
 
 • Side: {data.get("direction")} {data.get("token_name")}
 • Amount: {data.get("amount", 0)} USDT
 • Order ID: <code>{order_id}</code>
+{market_link_line}
 
 📌 <b>Useful commands:</b>
 • /market - place a market order

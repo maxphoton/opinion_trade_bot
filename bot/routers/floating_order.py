@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
-from opinion.helper import calculate_target_price, get_offset_bounds
+from opinion.helper import calculate_target_price, get_market_url, get_offset_bounds
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -1123,6 +1123,15 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.error(f"Error saving order to DB: {e}")
 
+        market_id = data.get("market_id")
+        root_market_id = data.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id) if market_id else None
+        market_link_line = (
+            f'• Market link: <a href="{market_url}">Open market</a>\n'
+            if market_url
+            else ""
+        )
+
         await callback.message.edit_text(
             f"""✅ <b>Order successfully placed!</b>
 
@@ -1133,6 +1142,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Offset: {offset_cents:.2f}¢
 • Reposition threshold: {reposition_threshold_cents:.2f}¢
 • Order ID: <code>{order_id}</code>
+{market_link_line}
 
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm

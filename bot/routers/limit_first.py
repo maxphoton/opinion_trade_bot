@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
-from opinion.helper import build_cancel_keyboard, calculate_target_price
+from opinion.helper import build_cancel_keyboard, calculate_target_price, get_market_url
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
@@ -678,6 +678,15 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         except Exception as exc:
             logger.error("Error saving limit_first order to DB: %s", exc)
 
+        market_id = data.get("market_id")
+        root_market_id = data.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id) if market_id else None
+        market_link_line = (
+            f'• Market link: <a href="{market_url}">Open market</a>\n'
+            if market_url
+            else ""
+        )
+
         await callback.message.edit_text(
             f"""✅ <b>Limit order placed!</b>
 
@@ -686,6 +695,7 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Amount: {data.get("amount", 0)} USDT
 • Offset: {FIXED_OFFSET_TICKS * TICK_SIZE * 100:.2f}¢
 • Order ID: <code>{order_id}</code>
+{market_link_line}
 
 📌 <b>Useful commands:</b>
 • /limit_first - place a fixed offset limit order
