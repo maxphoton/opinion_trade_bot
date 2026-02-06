@@ -10,8 +10,9 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, StartMode
-from routers.orders_dialog import OrdersSG
 from service.database import get_user, get_user_accounts
+
+from routers.orders_dialog import OrdersSG
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,9 @@ async def cmd_orders(message: Message, dialog_manager: DialogManager):
     accounts = await get_user_accounts(telegram_id)
     if not accounts:
         await message.answer(
-            """❌ You don't have any Opinion accounts yet.
+            """❌ You don't have any Opinion profiles yet.
 
-Use /add_account to add your first Opinion account."""
+Use /add_profile to add your first Opinion profile."""
         )
         return
 

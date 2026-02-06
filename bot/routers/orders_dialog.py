@@ -11,8 +11,8 @@ from aiogram_dialog.widgets.text import Const, Format
 from opinion.client_factory import create_client
 from service.database import (
     get_account_orders,
-    get_order_by_id,
     get_opinion_account,
+    get_order_by_id,
     update_order_status,
 )
 
@@ -182,12 +182,17 @@ To exit cancel mode, press the Cancel Order button again."""
 async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManager):
     """Обработчик кнопки Exit - отправляет сообщение и закрывает диалог."""
     await callback.message.answer(
-        """Use the /make_market command to start a new farm.
-Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
-Use the /help command to view instructions.
-Use the /support command to contact administrator."""
+        """Use the /floating_order to place floating order.
+Use the /market to place a market order.
+Use the /limit to place a limit order.
+Use the /limit_first command for keeps your limit orders always first in the order book.
+Use the /orders to manage your orders.
+Use the /check_profile to view profile statistics.
+Use the /profile_list to view all your profiles.
+Use the /help to view instructions.
+Use the /support to contact administrator.
+Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )
     await manager.done()
     await callback.answer()
@@ -210,11 +215,7 @@ async def cancel_order_input_handler(
         return
 
     # Получаем account_id из start_data
-    account_id = (
-        manager.start_data.get("account_id")
-        if manager.start_data
-        else None
-    )
+    account_id = manager.start_data.get("account_id") if manager.start_data else None
 
     if not account_id:
         await message.answer("❌ Account not found.")
@@ -325,11 +326,7 @@ async def orders_search_handler(
         return
 
     # Получаем account_id из start_data
-    account_id = (
-        manager.start_data.get("account_id")
-        if manager.start_data
-        else None
-    )
+    account_id = manager.start_data.get("account_id") if manager.start_data else None
 
     if not account_id:
         await message.answer("❌ Account not found.")

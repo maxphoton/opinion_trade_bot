@@ -128,6 +128,7 @@ from opinion.client_factory import create_client
 from opinion.opinion_api_wrapper import (
     ORDER_STATUS_CANCELED,
     ORDER_STATUS_FINISHED,
+    get_latest_price,
     get_order_by_id,
 )
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
@@ -144,64 +145,6 @@ from service.database import (
 logger = logging.getLogger(__name__)
 
 # Прокси настраивается индивидуально для каждого аккаунта в create_client
-
-
-def get_current_market_price(client, token_id: str, side: str) -> Optional[float]:
-    """
-    Получает текущую цену рынка для токена.
-
-    Args:
-        client: Клиент Opinion SDK
-        token_id: ID токена (YES или NO)
-        side: BUY или SELL - определяет, какую цену брать
-              Для BUY и SELL используется best_bid (самый высокий бид):
-              - BUY: когда цена ВНИЗ (best_bid уменьшается), ордер ближе к исполнению
-              - SELL: когда цена ВВЕРХ (best_bid увеличивается), ордер ближе к исполнению
-
-    Returns:
-        Текущая цена или None в случае ошибки
-    """
-    try:
-        response = client.get_orderbook(token_id=token_id)
-
-        if response.errno != 0:
-            logger.error(
-                f"Ошибка получения orderbook для токена {token_id}: errno={response.errno}"
-            )
-            return None
-
-        orderbook = (
-            response.result
-            if not hasattr(response.result, "data")
-            else response.result.data
-        )
-
-        bids = orderbook.bids if hasattr(orderbook, "bids") else []
-
-        # Для BUY и SELL используем best_bid (самый высокий бид)
-        # BUY: когда цена ВНИЗ (best_bid уменьшается), ордер ближе к исполнению
-        # SELL: когда цена ВВЕРХ (best_bid увеличивается), ордер ближе к исполнению
-        if bids and len(bids) > 0:
-            # Сортируем биды по убыванию цены
-            bid_prices = []
-            for bid in bids:
-                if hasattr(bid, "price"):
-                    try:
-                        price = float(bid.price)
-                        bid_prices.append(price)
-                    except (ValueError, TypeError):
-                        continue
-            if bid_prices:
-                return max(bid_prices)  # Самый высокий бид
-
-        logger.warning(
-            f"Не удалось определить текущую цену для токена {token_id}, side={side}"
-        )
-        return None
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении текущей цены для токена {token_id}: {e}")
-        return None
 
 
 def get_market_url(market_id: int, root_market_id: Optional[int] = None) -> str:
@@ -389,8 +332,21 @@ async def process_account_orders(
 
                 # Продолжаем обработку, если не удалось проверить статус (graceful degradation)
 
+            # Если offset и threshold равны 0, не переставляем ордер (только контроль статуса)
+            if offset_ticks == 0 and reposition_threshold_cents == 0:
+                logger.info(
+                    f"Пропуск перестановки ордера {order_id}: offset_ticks=0, "
+                    f"reposition_threshold_cents=0"
+                )
+                continue
+
             # Получаем текущую цену рынка
-            new_current_price = get_current_market_price(client, token_id, side)
+            new_current_price = await get_latest_price(client, token_id)
+            if new_current_price is None:
+                logger.warning(
+                    f"Не удалось определить текущую цену для токена {token_id}, side={side}"
+                )
+                continue
             if not new_current_price:
                 logger.warning(
                     f"Не удалось получить текущую цену для ордера {order_id}"
@@ -1002,11 +958,11 @@ async def async_sync_all_orders(bot, market_id: Optional[int] = None):
         logger.info(f"{'=' * 80}")
 
         # Проверяем статус прокси
-        if proxy_status == "failed":
-            logger.warning(
-                f"Пропуск аккаунта {account_id}: прокси не работает (статус: failed)"
-            )
-            continue
+        # if proxy_status == "failed":
+        #     logger.warning(
+        #         f"Пропуск аккаунта {account_id}: прокси не работает (статус: failed)"
+        #     )
+        #     continue
 
         try:
             # Получаем списки ордеров для отмены и размещения, а также уведомления

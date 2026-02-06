@@ -4,7 +4,7 @@
 Алгоритм работы:
 1. Команда /start - регистрация (кошелек, приватный ключ, API ключ)
 2. Данные шифруются и сохраняются в SQLite
-3. Команда /make_market - размещение ордера (логика из simple_flow.py)
+3. Команда /floating_order - размещение ордера (логика из simple_flow.py)
 """
 
 import asyncio
@@ -23,7 +23,10 @@ from opinion.sync_orders import async_sync_all_orders
 # from opinion.websocket_sync import WebSocketOrderSync, set_websocket_sync
 from routers.account import account_router
 from routers.admin import admin_router
-from routers.make_market import market_router
+from routers.floating_order import market_router
+from routers.limit import limit_order_router
+from routers.limit_first import limit_first_order_router
+from routers.market import market_order_router
 from routers.orders import orders_manage_router
 from routers.orders_dialog import orders_dialog
 from routers.plug import plug_router
@@ -137,11 +140,14 @@ async def main():
     # Регистрируем роутеры
     dp.include_router(start_router)  # User registration router
     dp.include_router(account_router)  # Account management router
-    dp.include_router(market_router)  # Market order placement router
+    dp.include_router(market_router)  # Floating order placement router
+    dp.include_router(market_order_router)  # Market order placement router
+    dp.include_router(limit_order_router)  # Limit order placement router
+    dp.include_router(limit_first_order_router)  # Fixed offset limit order router
     dp.include_router(orders_manage_router)  # Orders management router
     dp.include_router(
         user_router
-    )  # User commands router (help, support, check_account)
+    )  # User commands router (help, support, check_profile)
     dp.include_router(admin_router)  # Admin commands router
     dp.include_router(plug_router)  # Fallback router (unknown message handler)
 
@@ -150,8 +156,8 @@ async def main():
     logger.info("Background sync task started")
 
     # Запускаем фоновую задачу проверки прокси
-    asyncio.create_task(background_proxy_check_task())
-    logger.info("Background proxy check task started")
+    # asyncio.create_task(background_proxy_check_task())
+    # logger.info("Background proxy check task started")
 
     # Запускаем WebSocket менеджер синхронизации ордеров (закомментировано)
     # websocket_sync = WebSocketOrderSync(bot)

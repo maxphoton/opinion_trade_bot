@@ -45,14 +45,20 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(
             """✅ You are already registered!
 
-Use the /make_market command to place an order.
-Use the /orders command to manage your orders.
-Use the /check_account command to view account statistics.
-Use the /list_accounts command to view all your accounts.
-Use the /help command to view instructions.
-Use the /support command to contact administrator.
+Use the /floating_order to place floating order.
+Use the /market to place a market order.
+Use the /limit to place a limit order.
+Use the /limit_first command for keeps your limit orders always first in the order book.
+Use the /orders to manage your orders.
+Use the /check_profile to view profile statistics.
+Use the /profile_list to view all your profiles.
+Use the /help to view instructions.
+Use the /support to contact administrator.
 
-🚀 Subscribe for best strategies, updates and VIP access @cmchn_public"""
+🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
+
+📚 Docs: https://bidask-bot.gitbook.io/docs/""",
+            disable_web_page_preview=True,
         )
         return
 
@@ -60,12 +66,14 @@ Use the /support command to contact administrator.
     await message.answer(
         """ Welcome!
 🚀 Subscribe for best strategies, updates and VIP access @cmchn_public
+📚 Docs: https://bidask-bot.gitbook.io/docs/
         
 🔐 Step 1: Bot Registration
 
 To register, you need an invite code.
 
-Please enter your invite code:"""
+Please enter your invite code:""",
+        disable_web_page_preview=True,
     )
     await state.set_state(RegistrationStates.waiting_invite)
 
@@ -123,13 +131,21 @@ Please start registration again with /start using a valid invite code."""
     await message.answer(
         """✅ Registration Completed!
 
-Now you need to add your Opinion account.
+Now you need to add your Opinion profile.
 
-Step 2: Use the /add_account command to add your first Opinion account with wallet address, private key, and API key.
+Step 2: Use the /add_profile to add your first Opinion profile with wallet address, private key, and API key.
 
 After adding an account, you can:
-• Use /make_market to place orders
-• Use /orders to manage your orders
-• Use /check_account to view account statistics
-• Use /list_accounts to view all your accounts"""
+• Use /floating_order to place floating order.
+• Use /market to place a market order.
+• Use /limit to place a limit order.
+• Use /limit_first command for keeps your limit orders always first in the order book.
+• Use /orders to manage your orders.
+• Use /check_profile to view profile statistics.
+• Use /profile_list to view all your profiles.
+• Use /help to view instructions.
+• Use /support to contact administrator.
+
+📚 Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )

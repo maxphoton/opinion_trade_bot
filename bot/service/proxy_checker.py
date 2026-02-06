@@ -199,7 +199,7 @@ async def check_account_proxy(account_id: int, bot=None) -> Optional[str]:
                 # Прокси перестал работать
                 message = f"""⚠️ <b>Proxy is not working</b>
 
-Proxy for Opinion account has stopped working.
+Proxy for Opinion profile has stopped working.
 
 Account: {account["wallet_address"][:10]}...
 
@@ -218,7 +218,7 @@ The proxy will be automatically checked every 10 minutes."""
                 # Прокси восстановился
                 message = f"""✅ <b>Proxy restored</b>
 
-Proxy for Opinion account is working again.
+Proxy for Opinion profile is working again.
 
 Account: {account["wallet_address"][:10]}...
 

@@ -12,28 +12,27 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • При первом запуске введите инвайт-код
 • После успешной регистрации вы получите доступ к боту
 
-<b>Шаг 2:</b> Команда <b>/add_account</b>
+<b>Шаг 2:</b> Команда <b>/add_profile</b>
 📹 <a href="https://t.me/cmchn_public/165">Видео гайд по добавлению аккаунта</a>
 • Добавьте аккаунт Opinion для работы с ордерами
 • При добавлении аккаунта укажите:
   • <b>Кошелек</b> — тот, для которого получен API ключ
   • <b>Приватный ключ</b> — от того же кошелька
   • <b>API ключ</b> — полученный для этого кошелька
-  • <b>Прокси</b> — обязателен, в формате ip:port:login:password
 
 ⚠️ <b>Важно:</b> Все три параметра (кошелек, приватный ключ, API ключ) должны относиться к одному кошельку. API ключ от другого кошелька не позволит размещать ордера.
 
-💡 <b>Множественные аккаунты:</b> Вы можете добавить несколько аккаунтов Opinion к одному Telegram аккаунту. Каждый аккаунт может иметь свой прокси. При размещении ордера вы сможете выбрать, какой аккаунт использовать.
+💡 <b>Множественные аккаунты:</b> Вы можете добавить несколько аккаунтов Opinion к одному Telegram аккаунту. При размещении ордера вы сможете выбрать, какой аккаунт использовать.
 
 <b>👤 Управление аккаунтами:</b>
-• <b>/add_account</b> — добавить новый аккаунт Opinion
-• <b>/list_accounts</b> — просмотреть все ваши аккаунты
-• <b>/remove_account</b> — удалить аккаунт
-• <b>/check_account</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется и обновляется статус прокси аккаунта
+• <b>/add_profile</b> — добавить новый аккаунт Opinion
+• <b>/profile_list</b> — просмотреть все ваши аккаунты
+• <b>/remove_profile</b> — удалить аккаунт
+• <b>/check_profile</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется
 
-<b>📊 Размещение ордера (/make_market):</b>
+<b>📊 Размещение ордера (/floating_order):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
-2. Введите ссылку на маркет Opinion.trade
+2. Введите ссылку на маркет <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a>
 3. Если маркет категориальный — выберите подмаркет
 4. Просмотрите информацию о маркете (спред, ликвидность, лучшие цены)
 5. Введите сумму в USDT (например: 10)
@@ -80,12 +79,11 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • Исполнении ордера (с деталями и ссылкой на маркет)
 • Ошибках отмены или размещения ордера
 
-<b>🔍 Проверка прокси:</b>
-Бот автоматически проверяет работоспособность прокси каждые 5 минут и обновляет статус при временных сбоях. Аккаунты с неработающим прокси (статус "failed") пропускаются при синхронизации ордеров. Статус прокси также отображается в команде /check_account и обновляется при каждом ее вызове.
-
 <b>💬 Поддержка:</b>
 По всем вопросам обращайтесь через команду <b>/support</b>
-Вы можете отправить текстовое сообщение или фото с подписью."""
+Вы можете отправить текстовое сообщение или фото с подписью.
+
+<b>📚 Документация:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""
 
 HELP_TEXT_ENG = """📖 <b>Bot Usage Instructions</b>
 
@@ -97,28 +95,27 @@ The bot automatically maintains limit orders, preventing them from being execute
 • On first launch, enter the invite code
 • After successful registration, you'll get access to the bot
 
-<b>Step 2:</b> Command <b>/add_account</b>
-📹 <a href="https://t.me/cmchn_public/165">Video guide on adding an account</a>
-• Add an Opinion account to work with orders
-• When adding an account, specify:
+<b>Step 2:</b> Command <b>/add_profile</b>
+📹 <a href="https://t.me/cmchn_public/165">Video guide on adding an profile</a>
+• Add an Opinion profile to work with orders
+• When adding an profile, specify:
   • <b>Wallet</b> — the one for which the API key was obtained
   • <b>Private key</b> — from the same wallet
   • <b>API key</b> — obtained for this wallet
-  • <b>Proxy</b> — required, in format ip:port:login:password
 
 ⚠️ <b>Important:</b> All three parameters (wallet, private key, API key) must belong to the same wallet. An API key from another wallet will not allow placing orders.
 
-💡 <b>Multiple Accounts:</b> You can add multiple Opinion accounts to one Telegram account. Each account can have its own proxy. When placing an order, you'll be able to select which account to use.
+💡 <b>Multiple Profiles:</b> You can add multiple Opinion profiles to one Telegram profile. Each profile can have its own proxy. When placing an order, you'll be able to select which profile to use.
 
-<b>👤 Account Management:</b>
-• <b>/add_account</b> — add a new Opinion account
-• <b>/list_accounts</b> — view all your accounts
-• <b>/remove_account</b> — remove an account
-• <b>/check_account</b> — check account balance, orders, and positions. When called, it automatically checks and updates the account's proxy status
+<b>👤 Profile Management:</b>
+• <b>/add_profile</b> — add a new Opinion profile
+• <b>/profile_list</b> — view all your profiles
+• <b>/remove_profile</b> — remove an profile
+• <b>/check_profile</b> — check profile balance, orders, and positions. When called, it automatically checks and updates the profile's proxy status
 
-<b>📊 Placing an Order (/make_market):</b>
-1. <b>Select Account</b> — if you have multiple accounts
-2. Enter the Opinion.trade market link
+<b>📊 Placing an Order (/floating_order):</b>
+1. <b>Select Profile</b> — if you have multiple profiles
+2. Enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link
 3. If the market is categorical — select a submarket
 4. Review market information (spread, liquidity, best prices)
 5. Enter the amount in USDT (e.g., 10)
@@ -144,7 +141,7 @@ The order will be placed 0.1 cents below the current best bid price. The bot wil
 
 <b>📋 Viewing Orders (/orders):</b>
 The command allows you to:
-• View all your orders (grouped by accounts)
+• View all your orders (grouped by profiles)
 • Cancel an order
 • Find an order by ID, market ID, market title, token name, or side
 • View order status (pending/finished/canceled)
@@ -165,12 +162,11 @@ The bot sends notifications about:
 • Order execution (with details and market link)
 • Cancellation or placement errors
 
-<b>🔍 Proxy Health Checking:</b>
-The bot automatically checks proxy health every 5 minutes and updates the status if there was a temporary failure. Accounts with failed proxies (status "failed") are skipped during order synchronization. Proxy status is also displayed in the /check_account command and is updated each time the command is called.
-
 <b>💬 Support:</b>
 For all questions, contact us via the <b>/support</b> command
-You can send a text message or a photo with a caption."""
+You can send a text message or a photo with a caption.
+
+<b>📚 Docs:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""
 
 HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 
@@ -182,28 +178,27 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • 首次启动时，输入邀请码
 • 注册成功后，您将获得对机器人的访问权限
 
-<b>步骤2:</b> 命令 <b>/add_account</b>
+<b>步骤2:</b> 命令 <b>/add_profile</b>
 📹 <a href="https://t.me/cmchn_public/165">添加账户视频指南</a>
 • 添加Opinion账户以处理订单
 • 添加账户时，请指定：
   • <b>钱包</b> — 获取API密钥的钱包
   • <b>私钥</b> — 来自同一钱包
   • <b>API密钥</b> — 为此钱包获取的
-  • <b>代理</b> — 必需，格式为 ip:port:login:password
 
 ⚠️ <b>重要:</b> 所有三个参数（钱包、私钥、API密钥）必须属于同一个钱包。来自其他钱包的API密钥将无法下订单。
 
 💡 <b>多个账户:</b> 您可以将多个Opinion账户添加到一个Telegram账户。每个账户可以有自己的代理。下订单时，您可以选择使用哪个账户。
 
 <b>👤 账户管理:</b>
-• <b>/add_account</b> — 添加新的Opinion账户
-• <b>/list_accounts</b> — 查看所有账户
-• <b>/remove_account</b> — 删除账户
-• <b>/check_account</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
+• <b>/add_profile</b> — 添加新的Opinion账户
+• <b>/profile_list</b> — 查看所有账户
+• <b>/remove_profile</b> — 删除账户
+• <b>/check_profile</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
 
-<b>📊 下订单 (/make_market):</b>
+<b>📊 下订单 (/floating_order):</b>
 1. <b>选择账户</b> — 如果您有多个账户
-2. 输入Opinion.trade市场链接
+2. 输入 <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> 市场链接
 3. 如果市场是分类市场 — 选择子市场
 4. 查看市场信息（价差、流动性、最佳价格）
 5. 输入USDT金额（例如：10）
@@ -250,9 +245,8 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • 订单执行（包含详情和市场链接）
 • 取消或下单错误
 
-<b>🔍 代理健康检查:</b>
-机器人每5分钟自动检查代理健康状态，并在出现临时故障时更新状态。代理失败的账户（状态"failed"）在订单同步期间会被跳过。代理状态也会在 /check_account 命令中显示，并在每次调用时更新。
-
 <b>💬 支持:</b>
 如有任何问题，请通过 <b>/support</b> 命令联系我们
-您可以发送文本消息或带说明的照片。"""
+您可以发送文本消息或带说明的照片。
+
+<b>📚 文档:</b> <a href="https://bidask-bot.gitbook.io/docs/">bidask-bot.gitbook.io/docs</a>"""
