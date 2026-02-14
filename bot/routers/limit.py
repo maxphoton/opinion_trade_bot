@@ -748,7 +748,9 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • /limit - place a limit order
 • /limit_first - place a fixed offset limit order
 • /market - place a market order
-• /orders - manage your orders""",
+• /orders - manage your orders
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet""",
             disable_web_page_preview=True,
         )
     else:
@@ -761,7 +763,9 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • /limit - place a limit order
 • /limit_first - place a fixed offset limit order
 • /market - place a market order
-• /orders - manage your orders"""
+• /orders - manage your orders
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet"""
         )
 
     await state.clear()
@@ -784,6 +788,8 @@ Use the /market to place a market order.
 Use the /limit to place a limit order.
 Use the /limit_first command for keeps your limit orders always first in the order book.
 Use the /orders to manage your orders.
+Use the /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+Use the /unfollow &lt;address&gt; to stop monitoring a wallet.
 Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.

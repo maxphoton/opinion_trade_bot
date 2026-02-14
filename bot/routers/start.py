@@ -50,6 +50,8 @@ Use the /market to place a market order.
 Use the /limit to place a limit order.
 Use the /limit_first command for keeps your limit orders always first in the order book.
 Use the /orders to manage your orders.
+Use the /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+Use the /unfollow &lt;address&gt; to stop monitoring a wallet.
 Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
@@ -141,6 +143,8 @@ After adding an account, you can:
 • Use /limit to place a limit order.
 • Use /limit_first command for keeps your limit orders always first in the order book.
 • Use /orders to manage your orders.
+• Use /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+• Use /unfollow &lt;address&gt; to stop monitoring a wallet.
 • Use /check_profile to view profile statistics.
 • Use /profile_list to view all your profiles.
 • Use /help to view instructions.
