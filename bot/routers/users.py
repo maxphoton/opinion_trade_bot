@@ -4,6 +4,7 @@ Handles help, support, and account checking commands.
 """
 
 import logging
+import re
 from datetime import datetime
 
 from aiogram import F, Router
@@ -23,9 +24,12 @@ from opinion.opinion_api_wrapper import (
 )
 from service.config import settings
 from service.database import (
+    add_wallet_monitor,
     get_opinion_account,
     get_user,
     get_user_accounts,
+    get_wallet_monitors_by_user,
+    remove_wallet_monitor,
     update_proxy_status,
 )
 from service.proxy_checker import check_proxy_health
@@ -207,6 +211,117 @@ async def show_account_info(message: Message, account_id: int):
         )
 
 
+@user_router.message(Command("follow"))
+async def cmd_follow_wallet(message: Message):
+    """Обработчик команды /follow - добавляет кошелек в мониторинг."""
+    telegram_id = message.from_user.id
+
+    user = await get_user(telegram_id)
+    if not user:
+        await message.answer("❌ You are not registered. Use /start to register.")
+        return
+
+    accounts = await get_user_accounts(telegram_id)
+    if not accounts:
+        await message.answer(
+            "❌ You need at least one Opinion profile to use /follow. "
+            "Use /add_profile first."
+        )
+        return
+
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await message.answer("Usage: /follow &lt;address&gt; &lt;label&gt;")
+        return
+
+    wallet_address = parts[1].strip()
+    label = parts[2].strip()
+
+    if not re.match(r"^0x[a-fA-F0-9]{40}$", wallet_address):
+        await message.answer("❌ Invalid wallet address format.")
+        return
+
+    if not label:
+        await message.answer("❌ Label cannot be empty.")
+        return
+
+    created = await add_wallet_monitor(wallet_address, label, telegram_id)
+    if not created:
+        await message.answer(
+            "❌ This wallet is already followed. Use /unfollow to remove it."
+        )
+        return
+
+    await message.answer(
+        f"✅ Wallet added to monitoring.\n\n"
+        f"Address: <code>{wallet_address}</code>\n"
+        f"Label: <b>{label}</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@user_router.message(Command("unfollow"))
+async def cmd_unfollow_wallet(message: Message):
+    """Обработчик команды /unfollow - удаляет кошелек из мониторинга."""
+    telegram_id = message.from_user.id
+
+    user = await get_user(telegram_id)
+    if not user:
+        await message.answer("❌ You are not registered. Use /start to register.")
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: /unfollow &lt;address&gt;")
+        return
+
+    wallet_address = parts[1].strip()
+    if not re.match(r"^0x[a-fA-F0-9]{40}$", wallet_address):
+        await message.answer("❌ Invalid wallet address format.")
+        return
+
+    removed = await remove_wallet_monitor(wallet_address, telegram_id)
+    if not removed:
+        await message.answer("❌ Wallet not found in your monitor list.")
+        return
+
+    await message.answer(
+        f"✅ Wallet removed from monitoring.\n\nAddress: <code>{wallet_address}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@user_router.message(Command("follow_list"))
+async def cmd_follow_list(message: Message):
+    """Обработчик команды /follow_list - список отслеживаемых кошельков."""
+    telegram_id = message.from_user.id
+
+    user = await get_user(telegram_id)
+    if not user:
+        await message.answer("❌ You are not registered. Use /start to register.")
+        return
+
+    records = await get_wallet_monitors_by_user(telegram_id)
+    if not records:
+        await message.answer(
+            "📭 You are not following any wallets yet.\n\n"
+            "Use /follow &lt;address&gt; &lt;label&gt; to add one."
+        )
+        return
+
+    lines = []
+    for record in records:
+        lines.append(f"• <code>{record['address']}</code> — <b>{record['label']}</b>")
+
+    list_text = "\n".join(lines)
+    await message.answer(
+        f"""📋 <b>Followed wallets</b>\n\n{list_text}\n\n"""
+        f"""To unfollow:\n/unfollow &lt;address&gt;\n"""
+        f"""Example:\n/unfollow <code>{records[0]["address"]}</code>""",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 @user_router.message(Command("help"))
 async def cmd_help(message: Message):
     """Обработчик команды /help - инструкция по работе с ботом."""
@@ -220,7 +335,10 @@ async def cmd_help(message: Message):
     builder.adjust(3)
 
     await message.answer(
-        HELP_TEXT_ENG, parse_mode="HTML", reply_markup=builder.as_markup()
+        HELP_TEXT_ENG,
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
 
 
@@ -248,7 +366,10 @@ async def process_help_lang(callback: CallbackQuery):
 
     try:
         await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=builder.as_markup()
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+            disable_web_page_preview=True,
         )
     except Exception as e:
         logger.error(f"Ошибка при обновлении текста инструкции: {e}")

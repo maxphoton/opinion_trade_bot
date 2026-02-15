@@ -6,7 +6,6 @@ Handles the complete order placement process from URL input to order confirmatio
 import hashlib
 import logging
 from datetime import datetime
-from typing import Optional, Tuple
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -15,10 +14,16 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.helper import (
+    calculate_target_price,
+    get_market_url,
+    get_offset_bounds,
+)
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
     get_categorical_market_submarkets,
+    get_latest_price,
     get_market_info,
     get_orderbooks,
     parse_market_url,
@@ -45,66 +50,15 @@ logger = logging.getLogger(__name__)
 class MarketOrderStates(StatesGroup):
     """States for the order placement process."""
 
-    waiting_account_selection = State()  # Выбор аккаунта (первый шаг)
-    waiting_url = State()
-    waiting_submarket = State()  # For submarket selection in categorical markets
-    waiting_side = State()
-    waiting_direction = State()
-    waiting_amount = State()
-    waiting_offset_ticks = State()
-    waiting_reposition_threshold = State()  # Порог отклонения для перестановки ордера
-    waiting_confirm = State()
-
-
-def calculate_target_price(
-    current_price: float, side: str, offset_ticks: int, tick_size: float = TICK_SIZE
-) -> Tuple[float, bool]:
-    """
-    Calculates target price for limit order.
-
-    API requires price range: 0.001 - 0.999 (inclusive)
-    """
-    MIN_PRICE = 0.001  # Minimum price per API requirements
-    MAX_PRICE = 0.999  # Maximum price per API requirements (not 1.0!)
-
-    if side == "BUY":
-        target = current_price - offset_ticks * tick_size
-    else:  # SELL
-        target = current_price + offset_ticks * tick_size
-
-    # Limit to MIN_PRICE - MAX_PRICE range (0.001 - 0.999)
-    target = max(MIN_PRICE, min(MAX_PRICE, target))
-    is_valid = MIN_PRICE <= target <= MAX_PRICE
-    target = round(target, 3)
-
-    # Check that after rounding the price is still in valid range
-    if target < MIN_PRICE:
-        target = MIN_PRICE
-        is_valid = True
-    elif target > MAX_PRICE:
-        target = MAX_PRICE
-        is_valid = True
-
-    return target, is_valid
-
-
-def get_offset_bounds(
-    direction: Optional[str], max_offset_buy: int, max_offset_sell: int
-) -> Tuple[int, int]:
-    """
-    Returns direction-aware min/max offset bounds (in ticks).
-    """
-    if direction == "BUY":
-        min_offset = -max_offset_sell
-        max_offset = max_offset_buy
-    elif direction == "SELL":
-        min_offset = -max_offset_buy
-        max_offset = max_offset_sell
-    else:
-        min_offset = -max(max_offset_buy, max_offset_sell)
-        max_offset = max(max_offset_buy, max_offset_sell)
-
-    return min_offset, max_offset
+    floating_account_selection = State()  # Выбор аккаунта (первый шаг)
+    floating_url = State()
+    floating_submarket = State()  # For submarket selection in categorical markets
+    floating_side = State()
+    floating_direction = State()
+    floating_amount = State()
+    floating_offset_ticks = State()
+    floating_reposition_threshold = State()  # Порог отклонения для перестановки ордера
+    floating_confirm = State()
 
 
 # ============================================================================
@@ -149,8 +103,9 @@ Use /add_profile to add your first Opinion profile."""
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
             reply_markup=builder.as_markup(),
+            disable_web_page_preview=True,
         )
-        await state.set_state(MarketOrderStates.waiting_url)
+        await state.set_state(MarketOrderStates.floating_url)
         return
 
     # Если аккаунтов несколько, показываем выбор
@@ -171,7 +126,7 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
 Select an account to use:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(MarketOrderStates.waiting_account_selection)
+    await state.set_state(MarketOrderStates.floating_account_selection)
 
 
 @market_router.callback_query(F.data.startswith("select_account_"))
@@ -195,12 +150,13 @@ async def process_account_selection(callback: CallbackQuery, state: FSMContext):
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
         reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
-    await state.set_state(MarketOrderStates.waiting_url)
+    await state.set_state(MarketOrderStates.floating_url)
     await callback.answer()
 
 
-@market_router.message(MarketOrderStates.waiting_url)
+@market_router.message(MarketOrderStates.floating_url)
 async def process_market_url(message: Message, state: FSMContext):
     """Handles market URL input."""
     url = message.text.strip()
@@ -317,7 +273,7 @@ Found submarkets: {len(submarket_list)}
 Select a submarket:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_submarket)
+        await state.set_state(MarketOrderStates.floating_submarket)
         return
 
     # For regular market continue as usual
@@ -467,11 +423,11 @@ Possible reasons:
 📈 Select side:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(MarketOrderStates.waiting_side)
+    await state.set_state(MarketOrderStates.floating_side)
 
 
 @market_router.callback_query(
-    F.data.startswith("submarket_"), MarketOrderStates.waiting_submarket
+    F.data.startswith("submarket_"), MarketOrderStates.floating_submarket
 )
 async def process_submarket(callback: CallbackQuery, state: FSMContext):
     """Handles submarket selection in categorical market."""
@@ -543,7 +499,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
 
-@market_router.message(MarketOrderStates.waiting_amount)
+@market_router.message(MarketOrderStates.floating_amount)
 async def process_amount(message: Message, state: FSMContext):
     """Handles amount input for farming."""
     try:
@@ -709,7 +665,7 @@ Use a negative value to move closer to the current price (e.g., <code>-0.8</code
 For example <code>0.8</code>:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_offset_ticks)
+        await state.set_state(MarketOrderStates.floating_offset_ticks)
     except ValueError:
         builder = InlineKeyboardBuilder()
         builder.button(text="✖️ Cancel", callback_data="cancel")
@@ -720,7 +676,7 @@ For example <code>0.8</code>:""",
 
 
 @market_router.callback_query(
-    F.data.startswith("side_"), MarketOrderStates.waiting_side
+    F.data.startswith("side_"), MarketOrderStates.floating_side
 )
 async def process_side(callback: CallbackQuery, state: FSMContext):
     """Handles side selection (YES/NO)."""
@@ -731,15 +687,14 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
     if side == "YES":
         token_id = data.get("yes_token_id")
         token_name = "YES"
-        yes_info = data.get("yes_info", {})
-        current_price = yes_info.get("mid_price") if yes_info else None
     else:
         token_id = data.get("no_token_id")
         token_name = "NO"
-        no_info = data.get("no_info", {})
-        current_price = no_info.get("mid_price") if no_info else None
 
-    if not current_price:
+    client = data.get("client")
+    current_price = await get_latest_price(client, token_id)
+
+    if current_price is None:
         await callback.message.answer(
             "❌ Failed to determine current price for selected token"
         )
@@ -774,10 +729,10 @@ Select order direction:""",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_direction)
+    await state.set_state(MarketOrderStates.floating_direction)
 
 
-@market_router.message(MarketOrderStates.waiting_offset_ticks)
+@market_router.message(MarketOrderStates.floating_offset_ticks)
 async def process_offset_ticks(message: Message, state: FSMContext):
     """
     Handles offset input in cents.
@@ -889,7 +844,7 @@ Recommended: <code>0.5</code> cents
 Enter the threshold:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(MarketOrderStates.waiting_reposition_threshold)
+        await state.set_state(MarketOrderStates.floating_reposition_threshold)
     except ValueError:
         data = await state.get_data()
         tick_size = data.get("tick_size", TICK_SIZE)
@@ -912,7 +867,7 @@ Enter the threshold:""",
 
 
 @market_router.callback_query(
-    F.data.startswith("dir_"), MarketOrderStates.waiting_direction
+    F.data.startswith("dir_"), MarketOrderStates.floating_direction
 )
 async def process_direction(callback: CallbackQuery, state: FSMContext):
     """Handles direction selection (BUY/SELL)."""
@@ -936,7 +891,7 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(MarketOrderStates.waiting_amount)
+    await state.set_state(MarketOrderStates.floating_amount)
 
 
 @market_router.callback_query(F.data == "cancel")
@@ -962,15 +917,19 @@ Use the /market to place a market order.
 Use the /limit to place a limit order.
 Use the /limit_first command for keeps your limit orders always first in the order book.
 Use the /orders to manage your orders.
+Use the /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+Use the /unfollow &lt;address&gt; to stop monitoring a wallet.
 Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
 Use the /support to contact administrator.
-Docs: https://bidask-bot.gitbook.io/docs/"""
+
+sDocs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )
 
 
-@market_router.message(MarketOrderStates.waiting_reposition_threshold)
+@market_router.message(MarketOrderStates.floating_reposition_threshold)
 async def process_reposition_threshold(message: Message, state: FSMContext):
     """Handles reposition threshold input (in cents)."""
     try:
@@ -1052,7 +1011,7 @@ Amount: {amount} USDT"""
         builder.adjust(2)
 
         await message.answer(confirm_text, reply_markup=builder.as_markup())
-        await state.set_state(MarketOrderStates.waiting_confirm)
+        await state.set_state(MarketOrderStates.floating_confirm)
 
     except ValueError:
         builder = InlineKeyboardBuilder()
@@ -1064,7 +1023,7 @@ Amount: {amount} USDT"""
 
 
 @market_router.callback_query(
-    F.data.startswith("confirm_"), MarketOrderStates.waiting_confirm
+    F.data.startswith("confirm_"), MarketOrderStates.floating_confirm
 )
 async def process_confirm(callback: CallbackQuery, state: FSMContext):
     """Handles order placement confirmation."""
@@ -1174,6 +1133,15 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.error(f"Error saving order to DB: {e}")
 
+        market_id = data.get("market_id")
+        root_market_id = data.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id) if market_id else None
+        market_link_line = (
+            f'• Market link: <a href="{market_url}">Open market</a>\n'
+            if market_url
+            else ""
+        )
+
         await callback.message.edit_text(
             f"""✅ <b>Order successfully placed!</b>
 
@@ -1184,11 +1152,15 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Offset: {offset_cents:.2f}¢
 • Reposition threshold: {reposition_threshold_cents:.2f}¢
 • Order ID: <code>{order_id}</code>
+{market_link_line}
 
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm
 • /orders - manage your orders
-• /check_profile - view profile statistics"""
+• /check_profile - view profile statistics
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet""",
+            disable_web_page_preview=True,
         )
     else:
         error_text = f"""❌ <b>Failed to place order</b>
@@ -1198,7 +1170,9 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 📌 <b>Useful commands:</b>
 • /floating_order - start a new farm
 • /orders - manage your orders
-• /check_profile - view profile statistics"""
+• /check_profile - view profile statistics
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet"""
         await callback.message.edit_text(error_text)
 
     await state.clear()

@@ -13,7 +13,7 @@ import io
 import logging
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import aiosqlite
 from service.aes import decrypt, encrypt
@@ -117,6 +117,21 @@ async def init_database():
             )
         """)
 
+        # Таблица мониторинга кошельков
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_monitor (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                address TEXT NOT NULL,
+                label TEXT NOT NULL,
+                tguserid INTEGER NOT NULL,
+                lastruntime INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                lastcountorders INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (tguserid) REFERENCES users(telegram_id),
+                UNIQUE(tguserid, address)
+            )
+        """)
+
         # Создаем индексы для быстрого поиска
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_invites_invite ON invites(invite)
@@ -124,6 +139,10 @@ async def init_database():
 
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_invites_telegram_id ON invites(telegram_id)
+        """)
+
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_wallet_monitor_user ON wallet_monitor(tguserid)
         """)
 
         # Добавляем поле reposition_threshold_cents если его нет (миграция)
@@ -1154,6 +1173,162 @@ async def export_users_to_csv() -> str:
     """
     async with aiosqlite.connect(DB_PATH) as conn:
         return await export_table_to_csv(conn, "users")
+
+
+async def add_wallet_monitor(address: str, label: str, tguserid: int) -> bool:
+    """
+    Добавляет запись мониторинга кошелька.
+
+    Returns:
+        bool: True если запись добавлена, False если уже существует.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        try:
+            await conn.execute(
+                """
+                INSERT INTO wallet_monitor (address, label, tguserid)
+                VALUES (?, ?, ?)
+                """,
+                (address, label, tguserid),
+            )
+            await conn.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+
+async def remove_wallet_monitor(address: str, tguserid: int) -> bool:
+    """
+    Удаляет запись мониторинга кошелька.
+
+    Returns:
+        bool: True если запись удалена, False если не найдена.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            """
+            DELETE FROM wallet_monitor
+            WHERE address = ? AND tguserid = ?
+            """,
+            (address, tguserid),
+        )
+        await conn.commit()
+        return cursor.rowcount > 0
+
+
+async def get_wallet_monitor_by_user(address: str, tguserid: int) -> Optional[dict]:
+    """Возвращает запись мониторинга по адресу и пользователю."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT id, address, label, tguserid, lastruntime, lastcountorders, created_at
+            FROM wallet_monitor
+            WHERE address = ? AND tguserid = ?
+            """,
+            (address, tguserid),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "address": row[1],
+        "label": row[2],
+        "tguserid": row[3],
+        "lastruntime": row[4],
+        "lastcountorders": row[5],
+        "created_at": row[6],
+    }
+
+
+async def get_wallet_monitors() -> List[Dict]:
+    """Возвращает список всех записей мониторинга кошельков."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT id, address, label, tguserid, lastruntime, lastcountorders, created_at
+            FROM wallet_monitor
+            ORDER BY id ASC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    monitors: List[Dict] = []
+    for row in rows:
+        monitors.append(
+            {
+                "id": row[0],
+                "address": row[1],
+                "label": row[2],
+                "tguserid": row[3],
+                "lastruntime": row[4],
+                "lastcountorders": row[5],
+                "created_at": row[6],
+            }
+        )
+    return monitors
+
+
+async def get_wallet_monitors_by_user(tguserid: int) -> List[Dict]:
+    """Возвращает список записей мониторинга кошельков для пользователя."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT id, address, label, tguserid, lastruntime, lastcountorders, created_at
+            FROM wallet_monitor
+            WHERE tguserid = ?
+            ORDER BY id ASC
+            """,
+            (tguserid,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    monitors: List[Dict] = []
+    for row in rows:
+        monitors.append(
+            {
+                "id": row[0],
+                "address": row[1],
+                "label": row[2],
+                "tguserid": row[3],
+                "lastruntime": row[4],
+                "lastcountorders": row[5],
+                "created_at": row[6],
+            }
+        )
+    return monitors
+
+
+async def update_wallet_monitor_runtime(monitor_id: int, lastruntime: int) -> None:
+    """Обновляет время последней обработки в Unix timestamp."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """
+            UPDATE wallet_monitor
+            SET lastruntime = ?
+            WHERE id = ?
+            """,
+            (lastruntime, monitor_id),
+        )
+        await conn.commit()
+
+
+async def update_wallet_monitor_orders_count(
+    monitor_id: int, lastcountorders: int
+) -> None:
+    """Обновляет количество позиций (lastcountorders)."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """
+            UPDATE wallet_monitor
+            SET lastcountorders = ?
+            WHERE id = ?
+            """,
+            (lastcountorders, monitor_id),
+        )
+        await conn.commit()
 
 
 async def export_all_tables_to_zip() -> bytes:

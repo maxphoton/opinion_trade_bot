@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from middlewares.spam_protection import AntiSpamMiddleware
 from middlewares.typing_middleware import TypingMiddleware
 from opinion.sync_orders import async_sync_all_orders
+from opinion.wallet_monitor import monitor_wallets_cycle
 
 # from opinion.websocket_sync import WebSocketOrderSync, set_websocket_sync
 from routers.account import account_router
@@ -111,6 +112,35 @@ async def background_proxy_check_task():
         await asyncio.sleep(PROXY_CHECK_INTERVAL)
 
 
+async def background_wallet_monitor_task():
+    """Фоновая задача для мониторинга кошельков."""
+    await asyncio.sleep(30)
+
+    MONITOR_INTERVAL = 60
+    MONITOR_TIMEOUT = 180
+
+    while True:
+        try:
+            await asyncio.wait_for(monitor_wallets_cycle(bot), timeout=MONITOR_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Wallet monitor cycle timeout exceeded ({MONITOR_TIMEOUT}s). "
+                "Sending notification to admin."
+            )
+            timeout_message = (
+                f"⏱️ <b>Wallet Monitor Timeout</b>\n\n"
+                f"Мониторинг кошельков превысил таймаут {MONITOR_TIMEOUT} секунд.\n"
+                f"Задача будет продолжена в следующем цикле."
+            )
+            await send_admin_notification_with_log(
+                bot, timeout_message, send_log_file=False
+            )
+        except Exception as e:
+            logger.error(f"Error in wallet monitor task: {e}")
+
+        await asyncio.sleep(MONITOR_INTERVAL)
+
+
 async def main():
     """Главная функция запуска бота."""
     # Инициализируем базу данных
@@ -154,6 +184,10 @@ async def main():
     # Запускаем фоновую задачу синхронизации ордеров
     asyncio.create_task(background_sync_task())
     logger.info("Background sync task started")
+
+    # Запускаем фоновую задачу мониторинга кошельков
+    asyncio.create_task(background_wallet_monitor_task())
+    logger.info("Wallet monitor task started")
 
     # Запускаем фоновую задачу проверки прокси
     # asyncio.create_task(background_proxy_check_task())
