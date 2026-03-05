@@ -66,10 +66,13 @@
 """
 
 import asyncio
+import json
 import logging
 import traceback
 from typing import Any, List, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, urlparse
+from urllib.request import Request, urlopen
 
 from opinion_clob_sdk.chain.py_order_utils.model.order import PlaceOrderDataInput
 from opinion_clob_sdk.chain.py_order_utils.model.order_type import (
@@ -92,14 +95,17 @@ ORDER_STATUS_CANCELED = (
 )
 
 
-def parse_market_url(url: str) -> Tuple[Optional[int], Optional[str]]:
-    """Parses Opinion.trade URL and extracts marketId and market type."""
+def parse_market_url(
+    url: str,
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    """Parses Opinion.trade URL and extracts marketId, market type, and slug."""
     try:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
 
         market_id = None
         market_type = None
+        market_slug = None
 
         if "topicId" in params:
             market_id = int(params["topicId"][0])
@@ -107,9 +113,95 @@ def parse_market_url(url: str) -> Tuple[Optional[int], Optional[str]]:
         if "type" in params:
             market_type = params["type"][0]
 
-        return market_id, market_type
+        # New URL format: /market/{slug} or /market/slug/{slug}
+        if not market_id:
+            path_parts = [part for part in parsed.path.split("/") if part]
+            if len(path_parts) >= 2 and path_parts[0] == "market":
+                if path_parts[1] == "slug" and len(path_parts) >= 3:
+                    market_slug = path_parts[2]
+                else:
+                    market_slug = path_parts[1]
+
+        market_type = normalize_market_type(market_type)
+        return market_id, market_type, market_slug
     except (ValueError, AttributeError):
+        return None, None, None
+
+
+def normalize_market_type(market_type_value: object) -> Optional[str]:
+    """Normalizes market type to existing code expectations ("multi" for categorical)."""
+    if market_type_value is None:
+        return None
+    if isinstance(market_type_value, str):
+        value = market_type_value.strip().lower()
+        if value in {"multi", "categorical", "1"}:
+            return "multi"
+        if value in {"binary", "0"}:
+            return "single"
+        return None
+    if isinstance(market_type_value, int):
+        return "multi" if market_type_value == 1 else "single"
+    return None
+
+
+async def resolve_market_by_slug(
+    api_key: str, slug: str
+) -> Tuple[Optional[int], Optional[str]]:
+    """Resolves marketId and market type by slug using Opinion OpenAPI."""
+
+    def _fetch():
+        url = f"https://openapi.opinion.trade/openapi/market/slug/{quote(slug)}"
+        request = Request(url, headers={"apikey": api_key, "Accept": "application/json"})
+        with urlopen(request, timeout=10) as response:
+            return response.read()
+
+    try:
+        raw = await asyncio.to_thread(_fetch)
+        payload = json.loads(raw.decode("utf-8"))
+    except (HTTPError, URLError) as e:
+        logger.error("Error resolving market slug '%s': %s", slug, e)
         return None, None
+    except Exception as e:
+        logger.error("Unexpected error resolving market slug '%s': %s", slug, e)
+        return None, None
+
+    # Opinion OpenAPI returns either {code,msg,...} or {errno,errmsg,...}
+    code = payload.get("code")
+    msg = payload.get("msg")
+    errno = payload.get("errno")
+    errmsg = payload.get("errmsg")
+
+    if code is not None and code != 0:
+        logger.warning(
+            "Failed to resolve market slug '%s': code=%s msg=%s",
+            slug,
+            code,
+            msg,
+        )
+        return None, None
+    if errno is not None and errno != 0:
+        logger.warning(
+            "Failed to resolve market slug '%s': errno=%s errmsg=%s",
+            slug,
+            errno,
+            errmsg,
+        )
+        return None, None
+
+    result = payload.get("result") or {}
+    data = result.get("data") if isinstance(result, dict) else None
+    data = data or result
+
+    market_id = data.get("marketId") or data.get("market_id") or data.get("id")
+    market_type_value = data.get("marketType") or data.get("market_type")
+
+    try:
+        market_id = int(market_id) if market_id is not None else None
+    except (TypeError, ValueError):
+        market_id = None
+
+    market_type = normalize_market_type(market_type_value)
+    return market_id, market_type
 
 
 async def get_market_info(client, market_id: int, is_categorical: bool = False):

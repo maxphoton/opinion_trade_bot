@@ -28,6 +28,7 @@ from opinion.opinion_api_wrapper import (
     get_orderbooks,
     parse_market_url,
     place_limit_order,
+    resolve_market_by_slug,
 )
 from opinion.websocket_sync import get_websocket_sync
 from opinion_clob_sdk import Client
@@ -160,18 +161,7 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
 async def process_market_url(message: Message, state: FSMContext):
     """Handles market URL input."""
     url = message.text.strip()
-    market_id, market_type = parse_market_url(url)
-
-    if not market_id:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="✖️ Cancel", callback_data="cancel")
-        await message.answer(
-            """❌ Failed to extract Market ID from URL. Please try again:""",
-            reply_markup=builder.as_markup(),
-        )
-        return
-
-    is_categorical = market_type == "multi"
+    market_id, market_type, market_slug = parse_market_url(url)
 
     # Получаем account_id из state
     data = await state.get_data()
@@ -214,6 +204,22 @@ Please contact administrator via /support and provide the error code above."""
             f"Ошибка создания клиента для пользователя {message.from_user.id} [CODE: {error_hash}] [TIME: {error_time}]: {e}"
         )
         return
+
+    if not market_id and market_slug:
+        market_id, market_type = await resolve_market_by_slug(
+            account.get("api_key", ""), market_slug
+        )
+
+    if not market_id:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✖️ Cancel", callback_data="cancel")
+        await message.answer(
+            """❌ Failed to extract Market ID from URL. Please try again:""",
+            reply_markup=builder.as_markup(),
+        )
+        return
+
+    is_categorical = market_type == "multi"
 
     # Get market information
     await message.answer("""📊 Getting market information...""")

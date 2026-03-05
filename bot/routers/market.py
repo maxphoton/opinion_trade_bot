@@ -24,6 +24,7 @@ from opinion.opinion_api_wrapper import (
     get_orderbooks,
     parse_market_url,
     place_market_order,
+    resolve_market_by_slug,
 )
 from opinion_clob_sdk.chain.py_order_utils.model.sides import OrderSide
 from service.database import (
@@ -136,17 +137,7 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
 async def process_market_url(message: Message, state: FSMContext):
     """Handles market URL input."""
     url = message.text.strip()
-    market_id, market_type = parse_market_url(url)
-
-    if not market_id:
-        builder = build_cancel_keyboard("market_cancel")
-        await message.answer(
-            """❌ Failed to extract Market ID from URL. Please try again:""",
-            reply_markup=builder.as_markup(),
-        )
-        return
-
-    is_categorical = market_type == "multi"
+    market_id, market_type, market_slug = parse_market_url(url)
 
     data = await state.get_data()
     account_id = data.get("account_id")
@@ -189,6 +180,21 @@ Please contact administrator via /support and provide the error code above."""
             exc,
         )
         return
+
+    if not market_id and market_slug:
+        market_id, market_type = await resolve_market_by_slug(
+            account.get("api_key", ""), market_slug
+        )
+
+    if not market_id:
+        builder = build_cancel_keyboard("market_cancel")
+        await message.answer(
+            """❌ Failed to extract Market ID from URL. Please try again:""",
+            reply_markup=builder.as_markup(),
+        )
+        return
+
+    is_categorical = market_type == "multi"
 
     await message.answer("""📊 Getting market information...""")
     market = await get_market_info(client, market_id, is_categorical)
