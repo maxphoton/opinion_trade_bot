@@ -167,6 +167,7 @@ Please enter a different private key:"""
 
 ⚠️ Important: You must enter the API key that was obtained for the wallet address from step 1.""",
         reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
     await state.set_state(AddAccountStates.waiting_api_key)
 

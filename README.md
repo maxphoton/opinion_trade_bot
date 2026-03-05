@@ -2,6 +2,8 @@
 
 A Telegram bot for placing limit orders on [Opinion.trade](https://app.opinion.trade) prediction markets. The bot provides an intuitive interface for market making strategies with secure credential management, invite-based access control, and automatic order synchronization.
 
+# Our documentation: https://bidask-bot.gitbook.io/docs/
+
 ## Features
 
 ### 🔐 Secure Registration with Invite System

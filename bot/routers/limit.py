@@ -14,10 +14,16 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from opinion.client_factory import create_client
+from opinion.helper import (
+    build_cancel_keyboard,
+    format_orderbook_levels,
+    get_market_url,
+)
 from opinion.opinion_api_wrapper import (
     calculate_spread_and_liquidity,
     check_usdt_balance,
     get_categorical_market_submarkets,
+    get_latest_price,
     get_market_info,
     get_orderbooks,
     parse_market_url,
@@ -38,70 +44,17 @@ logger = logging.getLogger(__name__)
 class LimitOrderStates(StatesGroup):
     """States for the limit order placement process."""
 
-    waiting_account_selection = State()
-    waiting_url = State()
-    waiting_submarket = State()
-    waiting_side = State()
-    waiting_direction = State()
-    waiting_amount = State()
-    waiting_limit_price = State()
-    waiting_confirm = State()
+    limit_account_selection = State()
+    limit_url = State()
+    limit_submarket = State()
+    limit_side = State()
+    limit_direction = State()
+    limit_amount = State()
+    limit_price = State()
+    limit_confirm = State()
 
 
 limit_order_router = Router()
-
-
-def build_cancel_keyboard(callback_data: str) -> InlineKeyboardBuilder:
-    """Creates a keyboard with a single cancel button."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✖️ Cancel", callback_data=callback_data)
-    return builder
-
-
-def format_orderbook_levels(orderbook) -> tuple[str, str]:
-    """Formats best bids and asks into text blocks."""
-    bids = orderbook.bids if hasattr(orderbook, "bids") else []
-    asks = orderbook.asks if hasattr(orderbook, "asks") else []
-
-    sorted_bids = []
-    for bid in bids or []:
-        if hasattr(bid, "price"):
-            try:
-                price = float(bid.price)
-                sorted_bids.append(price)
-            except (ValueError, TypeError):
-                continue
-    sorted_bids.sort(reverse=True)
-
-    sorted_asks = []
-    for ask in asks or []:
-        if hasattr(ask, "price"):
-            try:
-                price = float(ask.price)
-                sorted_asks.append(price)
-            except (ValueError, TypeError):
-                continue
-    sorted_asks.sort()
-
-    best_bids = [price * 100 for price in sorted_bids[:5]]
-    best_asks = [price * 100 for price in sorted_asks[:5]]
-
-    last_bid = sorted_bids[-1] * 100 if sorted_bids else None
-    last_ask = sorted_asks[-1] * 100 if sorted_asks else None
-
-    bids_text = "<b>Best 5 bids:</b>\n"
-    for i, bid_price in enumerate(best_bids, 1):
-        bids_text += f"{i}. {bid_price:.1f} ¢\n"
-    if last_bid and last_bid not in best_bids:
-        bids_text += f"...\n{last_bid:.1f} ¢\n"
-
-    asks_text = "<b>Best 5 asks:</b>\n"
-    for i, ask_price in enumerate(best_asks, 1):
-        asks_text += f"{i}. {ask_price:.1f} ¢\n"
-    if last_ask and last_ask not in best_asks:
-        asks_text += f"...\n{last_ask:.1f} ¢\n"
-
-    return bids_text, asks_text
 
 
 @limit_order_router.message(Command("limit"))
@@ -134,8 +87,9 @@ Use /add_profile to add your first Opinion profile."""
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
             reply_markup=builder.as_markup(),
+            disable_web_page_preview=True,
         )
-        await state.set_state(LimitOrderStates.waiting_url)
+        await state.set_state(LimitOrderStates.limit_url)
         return
 
     builder = InlineKeyboardBuilder()
@@ -155,12 +109,12 @@ Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</
 Select an account to use:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(LimitOrderStates.waiting_account_selection)
+    await state.set_state(LimitOrderStates.limit_account_selection)
 
 
 @limit_order_router.callback_query(
     F.data.startswith("limit_select_account_"),
-    LimitOrderStates.waiting_account_selection,
+    LimitOrderStates.limit_account_selection,
 )
 async def process_account_selection(callback: CallbackQuery, state: FSMContext):
     """Handles account selection."""
@@ -178,12 +132,13 @@ async def process_account_selection(callback: CallbackQuery, state: FSMContext):
 
 Please enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link:""",
         reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
     )
-    await state.set_state(LimitOrderStates.waiting_url)
+    await state.set_state(LimitOrderStates.limit_url)
     await callback.answer()
 
 
-@limit_order_router.message(LimitOrderStates.waiting_url)
+@limit_order_router.message(LimitOrderStates.limit_url)
 async def process_market_url(message: Message, state: FSMContext):
     """Handles market URL input."""
     url = message.text.strip()
@@ -296,7 +251,7 @@ Found submarkets: {len(submarket_list)}
 Select a submarket:""",
             reply_markup=builder.as_markup(),
         )
-        await state.set_state(LimitOrderStates.waiting_submarket)
+        await state.set_state(LimitOrderStates.limit_submarket)
         return
 
     yes_token_id = getattr(market, "yes_token_id", None)
@@ -440,12 +395,12 @@ Possible reasons:
 📈 Select side:""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(LimitOrderStates.waiting_side)
+    await state.set_state(LimitOrderStates.limit_side)
 
 
 @limit_order_router.callback_query(
     F.data.startswith("limit_submarket_"),
-    LimitOrderStates.waiting_submarket,
+    LimitOrderStates.limit_submarket,
 )
 async def process_submarket(callback: CallbackQuery, state: FSMContext):
     """Handles submarket selection in categorical markets."""
@@ -506,7 +461,7 @@ async def process_submarket(callback: CallbackQuery, state: FSMContext):
 
 
 @limit_order_router.callback_query(
-    F.data.startswith("limit_side_"), LimitOrderStates.waiting_side
+    F.data.startswith("limit_side_"), LimitOrderStates.limit_side
 )
 async def process_side(callback: CallbackQuery, state: FSMContext):
     """Handles side selection (YES/NO)."""
@@ -516,15 +471,14 @@ async def process_side(callback: CallbackQuery, state: FSMContext):
     if side == "YES":
         token_id = data.get("yes_token_id")
         token_name = "YES"
-        yes_info = data.get("yes_info", {})
-        current_price = yes_info.get("mid_price") if yes_info else None
     else:
         token_id = data.get("no_token_id")
         token_name = "NO"
-        no_info = data.get("no_info", {})
-        current_price = no_info.get("mid_price") if no_info else None
 
-    if not current_price:
+    client = data.get("client")
+    current_price = await get_latest_price(client, token_id)
+
+    if current_price is None:
         await callback.message.answer(
             "❌ Failed to determine current price for selected token"
         )
@@ -556,11 +510,11 @@ Select order direction:""",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(LimitOrderStates.waiting_direction)
+    await state.set_state(LimitOrderStates.limit_direction)
 
 
 @limit_order_router.callback_query(
-    F.data.startswith("limit_dir_"), LimitOrderStates.waiting_direction
+    F.data.startswith("limit_dir_"), LimitOrderStates.limit_direction
 )
 async def process_direction(callback: CallbackQuery, state: FSMContext):
     """Handles direction selection (BUY/SELL)."""
@@ -578,10 +532,10 @@ async def process_direction(callback: CallbackQuery, state: FSMContext):
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
-    await state.set_state(LimitOrderStates.waiting_amount)
+    await state.set_state(LimitOrderStates.limit_amount)
 
 
-@limit_order_router.message(LimitOrderStates.waiting_amount)
+@limit_order_router.message(LimitOrderStates.limit_amount)
 async def process_amount(message: Message, state: FSMContext):
     """Handles amount input for limit orders."""
     try:
@@ -652,10 +606,10 @@ Tick size: {tick_size_str}¢
 Enter the limit price in cents (e.g., <code>52.5</code>):""",
         reply_markup=builder.as_markup(),
     )
-    await state.set_state(LimitOrderStates.waiting_limit_price)
+    await state.set_state(LimitOrderStates.limit_price)
 
 
-@limit_order_router.message(LimitOrderStates.waiting_limit_price)
+@limit_order_router.message(LimitOrderStates.limit_price)
 async def process_limit_price(message: Message, state: FSMContext):
     """Handles limit price input."""
     try:
@@ -704,11 +658,11 @@ Place this limit order?"""
     builder.adjust(2)
 
     await message.answer(confirm_text, reply_markup=builder.as_markup())
-    await state.set_state(LimitOrderStates.waiting_confirm)
+    await state.set_state(LimitOrderStates.limit_confirm)
 
 
 @limit_order_router.callback_query(
-    F.data.startswith("limit_confirm_"), LimitOrderStates.waiting_confirm
+    F.data.startswith("limit_confirm_"), LimitOrderStates.limit_confirm
 )
 async def process_confirm(callback: CallbackQuery, state: FSMContext):
     """Handles order placement confirmation."""
@@ -772,6 +726,15 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
         except Exception as exc:
             logger.error("Error saving limit order to DB: %s", exc)
 
+        market_id = data.get("market_id")
+        root_market_id = data.get("root_market_id")
+        market_url = get_market_url(market_id, root_market_id) if market_id else None
+        market_link_line = (
+            f'• Market link: <a href="{market_url}">Open market</a>\n'
+            if market_url
+            else ""
+        )
+
         await callback.message.edit_text(
             f"""✅ <b>Limit order placed!</b>
 
@@ -779,12 +742,16 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • Price: {data.get("target_price", 0):.6f}
 • Amount: {data.get("amount", 0)} USDT
 • Order ID: <code>{order_id}</code>
+{market_link_line}
 
 📌 <b>Useful commands:</b>
 • /limit - place a limit order
 • /limit_first - place a fixed offset limit order
 • /market - place a market order
-• /orders - manage your orders"""
+• /orders - manage your orders
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet""",
+            disable_web_page_preview=True,
         )
     else:
         await callback.message.edit_text(
@@ -796,7 +763,9 @@ async def process_confirm(callback: CallbackQuery, state: FSMContext):
 • /limit - place a limit order
 • /limit_first - place a fixed offset limit order
 • /market - place a market order
-• /orders - manage your orders"""
+• /orders - manage your orders
+• /follow &lt;address&gt; &lt;label&gt; - follow a wallet
+• /unfollow &lt;address&gt; - stop monitoring a wallet"""
         )
 
     await state.clear()
@@ -819,9 +788,13 @@ Use the /market to place a market order.
 Use the /limit to place a limit order.
 Use the /limit_first command for keeps your limit orders always first in the order book.
 Use the /orders to manage your orders.
+Use the /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+Use the /unfollow &lt;address&gt; to stop monitoring a wallet.
 Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
 Use the /support to contact administrator.
-Docs: https://bidask-bot.gitbook.io/docs/"""
+
+Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )

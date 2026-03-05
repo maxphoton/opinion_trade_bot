@@ -21,9 +21,13 @@ Use the /market to place a market order.
 Use the /limit to place a limit order.
 Use the /limit_first command for keeps your limit orders always first in the order book.
 Use the /orders to manage your orders.
+Use the /follow &lt;address&gt; &lt;label&gt; to follow a wallet.
+Use the /unfollow &lt;address&gt; to stop monitoring a wallet.
 Use the /check_profile to view profile statistics.
 Use the /profile_list to view all your profiles.
 Use the /help to view instructions.
 Use the /support to contact administrator.
-Docs: https://bidask-bot.gitbook.io/docs/"""
+
+Docs: https://bidask-bot.gitbook.io/docs/""",
+        disable_web_page_preview=True,
     )

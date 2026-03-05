@@ -259,7 +259,7 @@ async def place_market_order(
         )
 
         def _place_order_sync():
-            return client.place_limit_order(order_data, check_approval=True)
+            return client.place_order(order_data, check_approval=True)
 
         result = await asyncio.to_thread(_place_order_sync)
 
@@ -346,7 +346,7 @@ async def place_limit_order(
         )
 
         def _place_order_sync():
-            return client.place_limit_order(order_data, check_approval=True)
+            return client.place_order(order_data, check_approval=True)
 
         result = await asyncio.to_thread(_place_order_sync)
 
@@ -548,6 +548,49 @@ async def get_order_by_id(client, order_id: str) -> Optional[Any]:
             )
             logger.error(traceback.format_exc())
 
+        return None
+
+
+async def get_latest_price(client, token_id: str) -> Optional[float]:
+    """
+    Gets latest price for a token via SDK.
+
+    Args:
+        client: Opinion SDK client
+        token_id: Token ID
+
+    Returns:
+        Latest price as float or None on error.
+    """
+    try:
+        response = await asyncio.to_thread(client.get_latest_price, token_id=token_id)
+
+        if response.errno != 0:
+            logger.warning(
+                "Ошибка при получении latest price: errno=%s, errmsg=%s",
+                response.errno,
+                getattr(response, "errmsg", "N/A"),
+            )
+            return None
+
+        if not hasattr(response, "result") or not response.result:
+            logger.warning("Ответ API не содержит result")
+            return None
+
+        price_data = (
+            response.result.data
+            if hasattr(response.result, "data")
+            else response.result
+        )
+        price_value = getattr(price_data, "price", None)
+        if price_value is None:
+            logger.warning("Ответ API не содержит price")
+            return None
+
+        return float(price_value)
+    except Exception as e:
+        logger.error(f"Исключение при получении latest price: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 

@@ -30,6 +30,10 @@ HELP_TEXT = """📖 <b>Инструкция по работе с ботом</b>
 • <b>/remove_profile</b> — удалить аккаунт
 • <b>/check_profile</b> — проверить баланс, ордера и позиции аккаунта. При вызове команды автоматически проверяется
 
+<b>👁️ Мониторинг кошельков:</b>
+• <b>/follow &lt;address&gt; &lt;label&gt;</b> — подписаться на кошелек и получать обновления по сделкам/позициям
+• <b>/unfollow &lt;address&gt;</b> — удалить кошелек из мониторинга
+
 <b>📊 Размещение ордера (/floating_order):</b>
 1. <b>Выберите аккаунт</b> — если у вас несколько аккаунтов
 2. Введите ссылку на маркет <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a>
@@ -113,6 +117,10 @@ The bot automatically maintains limit orders, preventing them from being execute
 • <b>/remove_profile</b> — remove an profile
 • <b>/check_profile</b> — check profile balance, orders, and positions. When called, it automatically checks and updates the profile's proxy status
 
+<b>👁️ Wallet Monitoring:</b>
+• <b>/follow &lt;address&gt; &lt;label&gt;</b> — follow another wallet and receive trade/position updates
+• <b>/unfollow &lt;address&gt;</b> — stop monitoring a wallet
+
 <b>📊 Placing an Order (/floating_order):</b>
 1. <b>Select Profile</b> — if you have multiple profiles
 2. Enter the <a href="https://app.opinion.trade?code=BJea79">Opinion.trade</a> market link
@@ -195,6 +203,10 @@ HELP_TEXT_CN = """📖 <b>机器人使用说明</b>
 • <b>/profile_list</b> — 查看所有账户
 • <b>/remove_profile</b> — 删除账户
 • <b>/check_profile</b> — 检查账户余额、订单和持仓。调用时自动检查并更新账户的代理状态
+
+<b>👁️ 钱包监控:</b>
+• <b>/follow &lt;address&gt; &lt;label&gt;</b> — 关注钱包并接收交易/持仓更新
+• <b>/unfollow &lt;address&gt;</b> — 停止监控钱包
 
 <b>📊 下订单 (/floating_order):</b>
 1. <b>选择账户</b> — 如果您有多个账户
